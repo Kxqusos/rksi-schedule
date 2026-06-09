@@ -2,8 +2,11 @@
 .pytest_cache/
 .venv/
 .uv-cache/
+.superpowers/
 __pycache__/
 node_modules/
+.next/
+*.tsbuildinfo
 dist/
 build/
 *.pyc
