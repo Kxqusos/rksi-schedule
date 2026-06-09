@@ -24,6 +24,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(100), nullable=False)
     display_name: Mapped[str] = mapped_column(String(150), nullable=False, default="")
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

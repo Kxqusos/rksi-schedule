@@ -24,6 +24,12 @@ class InvalidCredentialsError(Exception):
     pass
 
 
+class UserNotFoundError(Exception):
+    def __init__(self, user_id: int) -> None:
+        super().__init__(user_id)
+        self.user_id = user_id
+
+
 def create_user(session, payload: UserCreateRequest, actor: Actor) -> UserResponse:
     username = payload.username.strip()
     existing_user = session.scalar(select(User).where(User.username == username))
@@ -39,6 +45,7 @@ def create_user(session, payload: UserCreateRequest, actor: Actor) -> UserRespon
         username=username,
         display_name=display_name,
         password_hash=hash_password(payload.password),
+        is_active=True,
         role_id=role.id,
     )
     session.add(user)
@@ -57,6 +64,8 @@ def authenticate_user(session, username: str, password: str) -> UserResponse:
         raise InvalidCredentialsError()
 
     user, role_name = row
+    if not user.is_active:
+        raise InvalidCredentialsError()
     if not verify_password(password, user.password_hash):
         raise InvalidCredentialsError()
     return _user_response(user, role_name)
@@ -84,12 +93,39 @@ def list_users(session) -> list[UserResponse]:
     return [_user_response(user, role_name) for user, role_name in rows]
 
 
+def get_user_credentials(session, user_id: int) -> UserResponse:
+    user = session.get(User, user_id)
+    if user is None:
+        raise UserNotFoundError(user_id)
+    role_name = session.scalar(select(Role.name).where(Role.id == user.role_id))
+    if role_name is None:
+        raise UserNotFoundError(user_id)
+    return _user_response(user, role_name)
+
+
+def revoke_user(session, user_id: int, actor: Actor) -> UserResponse:
+    user = session.get(User, user_id)
+    if user is None:
+        raise UserNotFoundError(user_id)
+    if not user.is_active:
+        return get_user_credentials(session, user_id)
+
+    user.is_active = False
+    session.flush()
+    role_name = session.scalar(select(Role.name).where(Role.id == user.role_id))
+    if role_name is None:
+        raise UserNotFoundError(user_id)
+    _audit(session, action="revoke", user=user, actor=actor, payload={"username": user.username})
+    return _user_response(user, role_name)
+
+
 def _user_response(user: User, role_name: str) -> UserResponse:
     return UserResponse(
         id=user.id,
         username=user.username,
         display_name=user.display_name,
         role=role_name,
+        is_active=user.is_active,
         created_at=user.created_at,
     )
 

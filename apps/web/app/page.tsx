@@ -41,6 +41,7 @@ type SessionUser = {
   username: string;
   display_name: string;
   role: AppRole;
+  is_active: boolean;
   created_at: string;
 };
 
@@ -284,6 +285,8 @@ function UsersPage({ accessToken, currentUser }: { accessToken: string; currentU
   const [password, setPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState<AppRole>("operator");
   const [users, setUsers] = useState<UserRecord[]>([]);
+  const [selectedUser, setSelectedUser] = useState<UserRecord | null>(null);
+  const [selectedCredentials, setSelectedCredentials] = useState<UserRecord | null>(null);
   const [status, setStatus] = useState("Загрузка списка пользователей.");
   const [busy, setBusy] = useState<"load" | "create" | null>(null);
 
@@ -385,6 +388,53 @@ function UsersPage({ accessToken, currentUser }: { accessToken: string; currentU
     }
   };
 
+  const loadCredentials = async (user: UserRecord) => {
+    setSelectedUser(user);
+    setStatus("Загрузка данных пользователя.");
+    try {
+      const response = await fetch(`${apiBaseUrl}/users/${user.id}/credentials`, {
+        headers: buildAuthHeaders(accessToken),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const payload = (await response.json()) as UserRecord;
+      setSelectedCredentials(payload);
+      setStatus("Данные пользователя загружены.");
+    } catch {
+      setSelectedCredentials(null);
+      setStatus("Не удалось загрузить данные пользователя.");
+    }
+  };
+
+  const revokeUser = async (user: UserRecord) => {
+    if (!window.confirm(`Отозвать доступ пользователя ${user.username}?`)) {
+      return;
+    }
+
+    setBusy("load");
+    try {
+      const response = await fetch(`${apiBaseUrl}/users/${user.id}/revoke`, {
+        method: "POST",
+        headers: buildAuthHeaders(accessToken),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const updated = (await response.json()) as UserRecord;
+      setUsers((currentUsers) => currentUsers.map((item) => (item.id === updated.id ? updated : item)));
+      if (selectedUser?.id === updated.id) {
+        setSelectedUser(updated);
+        setSelectedCredentials(updated);
+      }
+      setStatus(`Пользователь ${updated.username} отозван.`);
+    } catch {
+      setStatus("Не удалось отозвать пользователя.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="users-page">
       <div className="import-head">
@@ -449,7 +499,7 @@ function UsersPage({ accessToken, currentUser }: { accessToken: string; currentU
           <div className="import-status">{status}</div>
         </form>
 
-        <div className="users-panel users-panel--list">
+        <div className="users-panel users-panel--credentials">
           <div className="users-panel__title">Список пользователей</div>
           {busy === "load" ? (
             <div className="users-empty">Загрузка...</div>
@@ -457,17 +507,64 @@ function UsersPage({ accessToken, currentUser }: { accessToken: string; currentU
             <div className="users-list">
               {users.map((user) => (
                 <div className="users-row" key={user.id}>
-                  <div>
+                  <div className="users-row__body">
                     <strong>{user.display_name}</strong>
-                    <span>@{user.username}</span>
+                    <span className="users-row__login">@{user.username}</span>
                     <span>{formatDateTime(user.created_at)}</span>
                   </div>
-                  <span className="users-role">{user.role}</span>
+                  <div className="users-row__side">
+                    <span className={user.is_active ? "users-role users-role--active" : "users-role users-role--inactive"}>
+                      {user.role}
+                    </span>
+                    <div className="users-row__actions">
+                      <button className="users-row__action" onClick={() => loadCredentials(user)} type="button">
+                        Креды
+                      </button>
+                      <button
+                        className="users-row__action"
+                        disabled={!user.is_active || busy !== null}
+                        onClick={() => revokeUser(user)}
+                        type="button"
+                      >
+                        Отозвать
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
             <div className="users-empty">{canManageUsers ? "Пользователей пока нет." : "Недоступно для operator."}</div>
+          )}
+        </div>
+
+        <div className="users-panel users-panel--list">
+          <div className="users-panel__title">Креды пользователя</div>
+          {selectedCredentials ? (
+            <div className="users-credentials">
+              <div className="users-credentials__row">
+                <span>Логин</span>
+                <strong>{selectedCredentials.username}</strong>
+              </div>
+              <div className="users-credentials__row">
+                <span>Отображаемое имя</span>
+                <strong>{selectedCredentials.display_name}</strong>
+              </div>
+              <div className="users-credentials__row">
+                <span>Роль</span>
+                <strong>{selectedCredentials.role}</strong>
+              </div>
+              <div className="users-credentials__row">
+                <span>Статус</span>
+                <strong>{selectedCredentials.is_active ? "активен" : "отозван"}</strong>
+              </div>
+              <div className="users-credentials__row">
+                <span>Пароль</span>
+                <strong>скрыт, доступен только для сброса</strong>
+              </div>
+            </div>
+          ) : (
+            <div className="users-empty">Выберите пользователя, чтобы посмотреть данные.</div>
           )}
         </div>
       </div>
@@ -492,6 +589,7 @@ type UserRecord = {
   username: string;
   display_name: string;
   role: AppRole;
+  is_active: boolean;
   created_at: string;
 };
 

@@ -61,4 +61,6 @@ def _resolve_actor(request: Request, *, authorization: str | None) -> Actor:
         user = get_user_by_id(session, int(token_payload.get("sub", 0)))
     if user is None:
         raise HTTPException(status_code=401, detail="user not found")
+    if not user.is_active:
+        raise HTTPException(status_code=401, detail="user is inactive")
     return Actor(role=user.role, name=user.display_name, user_id=user.id)

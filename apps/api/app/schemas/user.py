@@ -21,6 +21,7 @@ class UserResponse(BaseModel):
     username: str
     display_name: str
     role: UserRole
+    is_active: bool
     created_at: datetime
 
 

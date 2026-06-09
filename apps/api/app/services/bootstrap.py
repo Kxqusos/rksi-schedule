@@ -30,6 +30,7 @@ def bootstrap_admin(database_url: str) -> None:
                         username=config.username,
                         display_name=config.display_name,
                         password_hash=hash_password(config.password),
+                        is_active=True,
                         role_id=admin_role.id,
                     )
                     session.add(user)
@@ -37,6 +38,7 @@ def bootstrap_admin(database_url: str) -> None:
 
                 user.display_name = config.display_name
                 user.password_hash = hash_password(config.password)
+                user.is_active = True
                 user.role_id = admin_role.id
     except SQLAlchemyError:
         # Database migrations are still explicit. If tables are absent on startup,

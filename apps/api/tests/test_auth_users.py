@@ -112,3 +112,65 @@ def test_wrong_password_is_rejected(tmp_path, monkeypatch):
     response = client.post("/auth/login", json={"username": "root", "password": "wrong"})
 
     assert response.status_code == 401
+
+
+def test_admin_can_view_credentials_and_revoke_user(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'revoke.db'}"
+    migrate_database(database_url)
+    monkeypatch.setenv("ADMIN_USERNAME", "root")
+    monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
+    app.state.database_url = database_url
+    bootstrap_admin(database_url)
+    client = TestClient(app)
+
+    admin_token = client.post(
+        "/auth/login",
+        json={"username": "root", "password": "root-password"},
+    ).json()["access_token"]
+    create_response = client.post(
+        "/users",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "username": "operator-4",
+            "display_name": "Operator Four",
+            "password": "operator-password",
+            "role": "operator",
+        },
+    )
+
+    user_id = create_response.json()["id"]
+
+    credentials_response = client.get(
+        f"/users/{user_id}/credentials",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert credentials_response.status_code == 200
+    credentials = credentials_response.json()
+    assert credentials["username"] == "operator-4"
+    assert credentials["display_name"] == "Operator Four"
+    assert credentials["role"] == "operator"
+    assert credentials["is_active"] is True
+    assert "password" not in credentials
+    assert "password_hash" not in credentials
+
+    revoke_response = client.post(
+        f"/users/{user_id}/revoke",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert revoke_response.status_code == 200
+    assert revoke_response.json()["is_active"] is False
+
+    revoked_login = client.post(
+        "/auth/login",
+        json={"username": "operator-4", "password": "operator-password"},
+    )
+    assert revoked_login.status_code == 401
+
+    session_response = client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert session_response.status_code == 200
