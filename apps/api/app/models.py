@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -77,4 +77,3 @@ class Lesson(Base):
     subgroup: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     lesson_type: Mapped[str] = mapped_column(String(50), nullable=False, default="")
     raw_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-

@@ -1,9 +1,9 @@
 from dataclasses import asdict
 import json
-import os
 
 from fastapi import FastAPI, HTTPException, Request
 
+from app.core.config import get_database_url
 from app.services.import_schedule import import_schedule_from_payload
 
 app = FastAPI(title="Schedule RKS API")
@@ -16,10 +16,7 @@ def health() -> dict[str, str]:
 
 @app.post("/imports/schedule")
 async def import_schedule(request: Request) -> dict[str, int]:
-    database_url = getattr(request.app.state, "database_url", None) or os.getenv(
-        "DATABASE_URL",
-        "sqlite:///schedule-rks.db",
-    )
+    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
     payload = await _read_import_payload(request)
     result = import_schedule_from_payload(
         payload,

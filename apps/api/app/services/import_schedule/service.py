@@ -8,7 +8,6 @@ from typing import Any
 
 from sqlalchemy import select
 
-from app.db.base import Base
 from app.db.session import build_session_factory
 from app.models import Group, Lesson, Room, ScheduleImport, Subject, Teacher
 
@@ -28,8 +27,7 @@ def import_schedule_from_json(source: Path, database_url: str) -> ImportResult:
 
 def import_schedule_from_payload(payload: Any, database_url: str, source_path: str = "<payload>") -> ImportResult:
     documents = _normalize_root(payload)
-    engine, session_factory = build_session_factory(database_url)
-    Base.metadata.create_all(engine)
+    _engine, session_factory = build_session_factory(database_url)
 
     timetable_count = 0
     group_count = 0

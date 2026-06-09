@@ -4,10 +4,12 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import app
+from conftest import migrate_database
 
 
 def test_post_import_schedule_imports_fixture_into_database(tmp_path):
     app.state.database_url = f"sqlite:///{tmp_path / 'api.db'}"
+    migrate_database(app.state.database_url)
     client = TestClient(app)
     payload = Path(__file__).resolve().parents[3] / "7.json"
 
@@ -23,6 +25,7 @@ def test_post_import_schedule_imports_fixture_into_database(tmp_path):
 
 def test_post_import_schedule_accepts_uploaded_json_file(tmp_path):
     app.state.database_url = f"sqlite:///{tmp_path / 'api-file.db'}"
+    migrate_database(app.state.database_url)
     client = TestClient(app)
     payload = Path(__file__).resolve().parents[3] / "7.json"
 

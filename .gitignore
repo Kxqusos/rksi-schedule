@@ -1,9 +1,9 @@
 .DS_Store
 .pytest_cache/
 .venv/
+.uv-cache/
 __pycache__/
 node_modules/
 dist/
 build/
 *.pyc
-

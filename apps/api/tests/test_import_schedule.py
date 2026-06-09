@@ -2,12 +2,16 @@ from pathlib import Path
 import sqlite3
 
 from app.services.import_schedule.service import import_schedule_from_json
+from conftest import migrate_database
 
 
 def test_import_schedule_from_fixture_persists_groups_and_lessons(tmp_path):
     source = Path(__file__).resolve().parents[3] / "7.json"
     db_path = tmp_path / "schedule.db"
-    result = import_schedule_from_json(source, database_url=f"sqlite:///{db_path}")
+    database_url = f"sqlite:///{db_path}"
+    migrate_database(database_url)
+
+    result = import_schedule_from_json(source, database_url=database_url)
 
     assert result.timetable_count == 1
     assert result.group_count == 115
