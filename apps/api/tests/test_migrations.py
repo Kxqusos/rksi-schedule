@@ -25,11 +25,13 @@ def test_initial_migration_creates_schedule_import_tables(tmp_path):
 
     assert {
         "alembic_version",
+        "audit_log",
         "groups",
         "lessons",
+        "roles",
         "rooms",
         "schedule_imports",
         "subjects",
         "teachers",
+        "users",
     }.issubset(tables)
-

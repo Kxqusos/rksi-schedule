@@ -4,9 +4,11 @@ import json
 from fastapi import FastAPI, HTTPException, Request
 
 from app.core.config import get_database_url
+from app.routers.schedule import router as schedule_router
 from app.services.import_schedule import import_schedule_from_payload
 
 app = FastAPI(title="Schedule RKS API")
+app.include_router(schedule_router)
 
 
 @app.get("/health")

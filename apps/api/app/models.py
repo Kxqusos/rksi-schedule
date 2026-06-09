@@ -8,6 +8,24 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
+class Role(Base):
+    __tablename__ = "roles"
+    __table_args__ = (UniqueConstraint("name", name="uq_roles_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("username", name="uq_users_username"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(100), nullable=False)
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class ScheduleImport(Base):
     __tablename__ = "schedule_imports"
 
@@ -59,7 +77,16 @@ class Subject(Base):
 
 class Lesson(Base):
     __tablename__ = "lessons"
-    __table_args__ = (UniqueConstraint("source_lesson_id", name="uq_lessons_source_lesson_id"),)
+    __table_args__ = (
+        UniqueConstraint("source_lesson_id", name="uq_lessons_source_lesson_id"),
+        UniqueConstraint(
+            "group_id",
+            "lesson_date",
+            "time_slot",
+            "subgroup",
+            name="uq_lessons_group_date_time_subgroup",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_lesson_id: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -77,3 +104,16 @@ class Lesson(Base):
     subgroup: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     lesson_type: Mapped[str] = mapped_column(String(50), nullable=False, default="")
     raw_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entity_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    action: Mapped[str] = mapped_column(String(50), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(50), nullable=False)
+    actor_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
