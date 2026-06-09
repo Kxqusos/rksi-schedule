@@ -34,10 +34,88 @@ const adminNav = [
 const defaultSection = "Импорт JSON";
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 type AppRole = "admin" | "operator";
+const tokenStorageKey = "schedule-rks.access-token";
+
+type SessionUser = {
+  id: number;
+  username: string;
+  display_name: string;
+  role: AppRole;
+  created_at: string;
+};
+
+type AuthSession = {
+  accessToken: string;
+  user: SessionUser;
+};
 
 export default function Home() {
   const [activeSection, setActiveSection] = useState(defaultSection);
-  const [currentRole, setCurrentRole] = useState<AppRole>("admin");
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    const token = window.localStorage.getItem(tokenStorageKey);
+    if (!token) {
+      setAuthReady(true);
+      return;
+    }
+
+    let cancelled = false;
+    const hydrateSession = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/auth/me`, {
+          headers: buildAuthHeaders(token),
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const user = (await response.json()) as SessionUser;
+        if (!cancelled) {
+          setSession({ accessToken: token, user });
+        }
+      } catch {
+        window.localStorage.removeItem(tokenStorageKey);
+        if (!cancelled) {
+          setSession(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthReady(true);
+        }
+      }
+    };
+
+    void hydrateSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleLogin = (nextSession: AuthSession) => {
+    window.localStorage.setItem(tokenStorageKey, nextSession.accessToken);
+    setSession(nextSession);
+    setActiveSection(defaultSection);
+  };
+
+  const handleLogout = () => {
+    window.localStorage.removeItem(tokenStorageKey);
+    setSession(null);
+    setActiveSection(defaultSection);
+  };
+
+  if (!authReady) {
+    return (
+      <main className="auth-shell">
+        <div className="auth-loader">Загрузка...</div>
+      </main>
+    );
+  }
+
+  if (!session) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   const isWorkspacePage = activeSection === "Импорт JSON" || activeSection === "Пользователи и роли";
 
   return (
@@ -49,21 +127,18 @@ export default function Home() {
           </div>
           <div>
             <div className="sidebar__title">RKSI Schedule</div>
-            <div className="sidebar__caption">{currentRole}</div>
+            <div className="sidebar__caption">{session.user.display_name}</div>
           </div>
         </div>
 
-        <div className="role-switch" aria-label="Текущая роль">
-          {(["admin", "operator"] as const).map((role) => (
-            <button
-              className={currentRole === role ? "role-switch__button role-switch__button--active" : "role-switch__button"}
-              key={role}
-              onClick={() => setCurrentRole(role)}
-              type="button"
-            >
-              {role}
-            </button>
-          ))}
+        <div className="sidebar__session">
+          <div>
+            <div className="sidebar__session-role">{session.user.role}</div>
+            <div className="sidebar__session-login">{session.user.username}</div>
+          </div>
+          <button className="sidebar__logout" onClick={handleLogout} type="button">
+            Выйти
+          </button>
         </div>
 
         <nav className="sidebar__nav">
@@ -95,7 +170,7 @@ export default function Home() {
         {activeSection === "Импорт JSON" ? (
           <ImportPage />
         ) : activeSection === "Пользователи и роли" ? (
-          <UsersPage currentRole={currentRole} />
+          <UsersPage currentUser={session.user} accessToken={session.accessToken} />
         ) : (
           <div className="placeholder">
             <div className="placeholder__eyebrow">Раздел</div>
@@ -148,14 +223,71 @@ function NavGroup({
   );
 }
 
-function UsersPage({ currentRole }: { currentRole: AppRole }) {
+function LoginPage({ onLogin }: { onLogin: (session: AuthSession) => void }) {
   const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [status, setStatus] = useState("Введите логин и пароль.");
+  const [busy, setBusy] = useState(false);
+
+  const login = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextUsername = username.trim();
+    if (!nextUsername || !password) {
+      setStatus("Введите логин и пароль.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: nextUsername, password }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const payload = (await response.json()) as { access_token: string; user: SessionUser };
+      onLogin({ accessToken: payload.access_token, user: payload.user });
+    } catch {
+      setStatus("Не удалось войти.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <main className="auth-shell">
+      <form className="auth-card" onSubmit={login}>
+        <div className="auth-card__eyebrow">RKSI Schedule</div>
+        <h1>Вход</h1>
+        <label className="field">
+          <span>Логин</span>
+          <input disabled={busy} onChange={(event) => setUsername(event.target.value)} value={username} />
+        </label>
+        <label className="field">
+          <span>Пароль</span>
+          <input disabled={busy} onChange={(event) => setPassword(event.target.value)} type="password" value={password} />
+        </label>
+        <button className="import-button import-button--primary" disabled={busy} type="submit">
+          {busy ? "Входим..." : "Войти"}
+        </button>
+        <div className="import-status">{status}</div>
+      </form>
+    </main>
+  );
+}
+
+function UsersPage({ accessToken, currentUser }: { accessToken: string; currentUser: SessionUser }) {
+  const [username, setUsername] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState<AppRole>("operator");
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [status, setStatus] = useState("Загрузка списка пользователей.");
   const [busy, setBusy] = useState<"load" | "create" | null>(null);
 
-  const canManageUsers = currentRole === "admin";
+  const canManageUsers = currentUser.role === "admin";
 
   useEffect(() => {
     if (!canManageUsers) {
@@ -169,7 +301,7 @@ function UsersPage({ currentRole }: { currentRole: AppRole }) {
       setBusy("load");
       try {
         const response = await fetch(`${apiBaseUrl}/users`, {
-          headers: buildRoleHeaders(currentRole),
+          headers: buildAuthHeaders(accessToken),
         });
         if (!response.ok) {
           throw new Error(await response.text());
@@ -194,13 +326,21 @@ function UsersPage({ currentRole }: { currentRole: AppRole }) {
     return () => {
       cancelled = true;
     };
-  }, [canManageUsers, currentRole]);
+  }, [accessToken, canManageUsers]);
 
   const createUser = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextUsername = username.trim();
     if (!nextUsername) {
       setStatus("Введите username.");
+      return;
+    }
+    if (!displayName.trim()) {
+      setStatus("Введите отображаемое имя.");
+      return;
+    }
+    if (password.length < 8) {
+      setStatus("Пароль должен быть не короче 8 символов.");
       return;
     }
     if (!canManageUsers) {
@@ -214,9 +354,14 @@ function UsersPage({ currentRole }: { currentRole: AppRole }) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...buildRoleHeaders(currentRole),
+          ...buildAuthHeaders(accessToken),
         },
-        body: JSON.stringify({ username: nextUsername, role: newUserRole }),
+        body: JSON.stringify({
+          username: nextUsername,
+          display_name: displayName.trim(),
+          password,
+          role: newUserRole,
+        }),
       });
 
       if (response.status === 409) {
@@ -230,6 +375,8 @@ function UsersPage({ currentRole }: { currentRole: AppRole }) {
       const created = (await response.json()) as UserRecord;
       setUsers((currentUsers) => [...currentUsers, created]);
       setUsername("");
+      setDisplayName("");
+      setPassword("");
       setStatus(`Пользователь ${created.username} создан.`);
     } catch {
       setStatus("Не удалось создать пользователя.");
@@ -255,13 +402,34 @@ function UsersPage({ currentRole }: { currentRole: AppRole }) {
         <form className="users-panel" onSubmit={createUser}>
           <div className="users-panel__title">Новый пользователь</div>
           <label className="field">
-            <span>Username</span>
+            <span>Логин</span>
             <input
               disabled={!canManageUsers || busy !== null}
               maxLength={100}
               onChange={(event) => setUsername(event.target.value)}
               placeholder="operator-1"
               value={username}
+            />
+          </label>
+          <label className="field">
+            <span>Отображаемое имя</span>
+            <input
+              disabled={!canManageUsers || busy !== null}
+              maxLength={150}
+              onChange={(event) => setDisplayName(event.target.value)}
+              placeholder="Оператор 1"
+              value={displayName}
+            />
+          </label>
+          <label className="field">
+            <span>Пароль</span>
+            <input
+              disabled={!canManageUsers || busy !== null}
+              maxLength={128}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="••••••••"
+              type="password"
+              value={password}
             />
           </label>
           <label className="field">
@@ -290,7 +458,8 @@ function UsersPage({ currentRole }: { currentRole: AppRole }) {
               {users.map((user) => (
                 <div className="users-row" key={user.id}>
                   <div>
-                    <strong>{user.username}</strong>
+                    <strong>{user.display_name}</strong>
+                    <span>@{user.username}</span>
                     <span>{formatDateTime(user.created_at)}</span>
                   </div>
                   <span className="users-role">{user.role}</span>
@@ -321,6 +490,7 @@ type ImportSummary = {
 type UserRecord = {
   id: number;
   username: string;
+  display_name: string;
   role: AppRole;
   created_at: string;
 };
@@ -643,10 +813,9 @@ function formatBytes(bytes: number): string {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
-function buildRoleHeaders(role: AppRole): HeadersInit {
+function buildAuthHeaders(accessToken: string): HeadersInit {
   return {
-    "X-Role": role,
-    "X-Actor": role,
+    Authorization: `Bearer ${accessToken}`,
   };
 }
 

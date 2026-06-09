@@ -11,11 +11,25 @@ UserRole = Literal["operator", "admin"]
 
 class UserCreateRequest(BaseModel):
     username: str = Field(min_length=1, max_length=100)
+    display_name: str = Field(min_length=1, max_length=150)
+    password: str = Field(min_length=8, max_length=128)
     role: UserRole
 
 
 class UserResponse(BaseModel):
     id: int
     username: str
+    display_name: str
     role: UserRole
     created_at: datetime
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse

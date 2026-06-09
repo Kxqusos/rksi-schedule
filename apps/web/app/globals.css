@@ -33,6 +33,47 @@ button {
   font: inherit;
 }
 
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  padding: 20px;
+}
+
+.auth-card {
+  width: min(380px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.auth-card__eyebrow {
+  color: var(--muted-soft);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.auth-card h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 28px;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+
+.auth-loader {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
 .app-shell {
   min-height: 100vh;
   display: grid;
@@ -115,6 +156,54 @@ button {
 
 .role-switch__button--active {
   background: var(--accent-soft);
+  color: var(--text);
+}
+
+.sidebar__session {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.sidebar__session-role {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.sidebar__session-login {
+  margin-top: 3px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted-soft);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.sidebar__logout {
+  min-height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.sidebar__logout:hover {
+  border-color: rgba(238, 242, 246, 0.28);
+  background: rgba(255, 255, 255, 0.045);
   color: var(--text);
 }
 
@@ -682,6 +771,7 @@ button {
   .sidebar__brand > div:last-child,
   .nav-group__title,
   .role-switch,
+  .sidebar__session,
   .nav-item span {
     display: none;
   }
