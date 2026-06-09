@@ -1,0 +1,18 @@
+[project]
+name = "schedule-rks-api"
+version = "0.1.0"
+description = "FastAPI service for schedule import and editing"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "pydantic>=2.10",
+  "sqlalchemy>=2.0",
+  "psycopg[binary]>=3.2",
+  "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+]
+

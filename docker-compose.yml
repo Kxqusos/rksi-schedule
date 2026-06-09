@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: schedule_rks
+      POSTGRES_USER: schedule_rks
+      POSTGRES_PASSWORD: schedule_rks
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U schedule_rks -d schedule_rks"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+

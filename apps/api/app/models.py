@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+from datetime import date, datetime, time
+
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class ScheduleImport(Base):
+    __tablename__ = "schedule_imports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    timetable_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    group_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lesson_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    empty_day_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    raw_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class Group(Base):
+    __tablename__ = "groups"
+    __table_args__ = (UniqueConstraint("source_name", name="uq_groups_source_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    course: Mapped[int] = mapped_column(Integer, nullable=False)
+    faculty: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+
+
+class Teacher(Base):
+    __tablename__ = "teachers"
+    __table_args__ = (UniqueConstraint("source_teacher_id", name="uq_teachers_source_teacher_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_teacher_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    post: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+
+
+class Room(Base):
+    __tablename__ = "rooms"
+    __table_args__ = (UniqueConstraint("source_name", name="uq_rooms_source_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_name: Mapped[str] = mapped_column(String(100), nullable=False)
+
+
+class Subject(Base):
+    __tablename__ = "subjects"
+    __table_args__ = (UniqueConstraint("source_name", name="uq_subjects_source_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_name: Mapped[str] = mapped_column(String(250), nullable=False)
+
+
+class Lesson(Base):
+    __tablename__ = "lessons"
+    __table_args__ = (UniqueConstraint("source_lesson_id", name="uq_lessons_source_lesson_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_lesson_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    schedule_import_id: Mapped[int] = mapped_column(ForeignKey("schedule_imports.id"), nullable=False)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), nullable=False)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
+    teacher_id: Mapped[int | None] = mapped_column(ForeignKey("teachers.id"), nullable=True)
+    room_id: Mapped[int | None] = mapped_column(ForeignKey("rooms.id"), nullable=True)
+    lesson_date: Mapped[date] = mapped_column(Date, nullable=False)
+    start_time: Mapped[time] = mapped_column(nullable=False)
+    end_time: Mapped[time] = mapped_column(nullable=False)
+    weekday: Mapped[int] = mapped_column(Integer, nullable=False)
+    week_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    time_slot: Mapped[int] = mapped_column(Integer, nullable=False)
+    subgroup: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lesson_type: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    raw_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
