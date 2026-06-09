@@ -1,2 +1,1 @@
-from .service import ImportResult, import_schedule_from_json
-
+from .service import ImportResult, import_schedule_from_json, import_schedule_from_payload

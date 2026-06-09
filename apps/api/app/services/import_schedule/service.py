@@ -23,6 +23,10 @@ class ImportResult:
 
 def import_schedule_from_json(source: Path, database_url: str) -> ImportResult:
     payload = json.loads(source.read_text(encoding="utf-8"))
+    return import_schedule_from_payload(payload, database_url=database_url, source_path=str(source))
+
+
+def import_schedule_from_payload(payload: Any, database_url: str, source_path: str = "<payload>") -> ImportResult:
     documents = _normalize_root(payload)
     engine, session_factory = build_session_factory(database_url)
     Base.metadata.create_all(engine)
@@ -36,7 +40,7 @@ def import_schedule_from_json(source: Path, database_url: str) -> ImportResult:
     with session_factory() as session:
         with session.begin():
             import_record = ScheduleImport(
-                source_path=str(source),
+                source_path=source_path,
                 raw_payload=payload if isinstance(payload, dict) else {"documents": payload},
             )
             session.add(import_record)
