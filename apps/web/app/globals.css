@@ -85,6 +85,39 @@ button {
   line-height: 1.2;
 }
 
+.role-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 4px;
+}
+
+.role-switch__button {
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.role-switch__button:hover {
+  color: var(--text);
+}
+
+.role-switch__button--active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
 .sidebar__nav {
   display: grid;
   gap: 20px;
@@ -439,6 +472,139 @@ button {
   font-weight: 700;
 }
 
+.users-page {
+  width: min(1120px, 100%);
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+
+.users-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.users-panel {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 16px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.users-panel--list {
+  min-height: 286px;
+}
+
+.users-panel__title {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+}
+
+.field span {
+  color: var(--muted-soft);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 0 11px;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.field input:focus,
+.field select:focus {
+  border-color: rgba(79, 127, 216, 0.75);
+}
+
+.field input:disabled,
+.field select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.users-list {
+  display: grid;
+  gap: 8px;
+}
+
+.users-row {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(17, 22, 29, 0.72);
+  padding: 9px 11px;
+}
+
+.users-row strong {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.users-row span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted-soft);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.users-role {
+  min-width: 78px;
+  min-height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(79, 127, 216, 0.38);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text) !important;
+  font-size: 12px !important;
+  font-weight: 650;
+}
+
+.users-empty {
+  min-height: 150px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 @media (min-width: 2400px) {
   :root {
     --sidebar-width: 320px;
@@ -456,6 +622,10 @@ button {
     width: min(1360px, 100%);
   }
 
+  .users-page {
+    width: min(1360px, 100%);
+  }
+
   .import-dropzone {
     min-height: 220px;
   }
@@ -467,6 +637,10 @@ button {
   }
 
   .import-page {
+    width: min(980px, 100%);
+  }
+
+  .users-page {
     width: min(980px, 100%);
   }
 }
@@ -482,6 +656,10 @@ button {
 
   .import-meta {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .users-grid {
+    grid-template-columns: 320px minmax(0, 1fr);
   }
 }
 
@@ -503,6 +681,7 @@ button {
 
   .sidebar__brand > div:last-child,
   .nav-group__title,
+  .role-switch,
   .nav-item span {
     display: none;
   }
@@ -526,6 +705,10 @@ button {
 
   .import-chip-row {
     justify-content: flex-start;
+  }
+
+  .users-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -623,5 +806,21 @@ button {
 
   .import-button {
     width: 100%;
+  }
+
+  .users-page {
+    gap: 14px;
+  }
+
+  .users-panel {
+    padding: 12px;
+  }
+
+  .users-row {
+    grid-template-columns: 1fr;
+  }
+
+  .users-role {
+    justify-self: start;
   }
 }

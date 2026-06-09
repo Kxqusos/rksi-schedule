@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_cors_origins, get_database_url
 from app.routers.schedule import router as schedule_router
+from app.routers.users import router as users_router
 from app.services.import_schedule import import_schedule_from_payload
 
 app = FastAPI(title="Schedule RKS API")
@@ -17,6 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(schedule_router)
+app.include_router(users_router)
 
 
 @app.get("/health")

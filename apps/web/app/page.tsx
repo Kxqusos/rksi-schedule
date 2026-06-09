@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import type { ChangeEvent, DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent, DragEvent, FormEvent } from "react";
 import {
   CalendarDays,
   ClipboardList,
@@ -33,9 +33,12 @@ const adminNav = [
 
 const defaultSection = "Импорт JSON";
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+type AppRole = "admin" | "operator";
 
 export default function Home() {
   const [activeSection, setActiveSection] = useState(defaultSection);
+  const [currentRole, setCurrentRole] = useState<AppRole>("admin");
+  const isWorkspacePage = activeSection === "Импорт JSON" || activeSection === "Пользователи и роли";
 
   return (
     <main className="app-shell">
@@ -46,8 +49,21 @@ export default function Home() {
           </div>
           <div>
             <div className="sidebar__title">RKSI Schedule</div>
-            <div className="sidebar__caption">Оператор</div>
+            <div className="sidebar__caption">{currentRole}</div>
           </div>
+        </div>
+
+        <div className="role-switch" aria-label="Текущая роль">
+          {(["admin", "operator"] as const).map((role) => (
+            <button
+              className={currentRole === role ? "role-switch__button role-switch__button--active" : "role-switch__button"}
+              key={role}
+              onClick={() => setCurrentRole(role)}
+              type="button"
+            >
+              {role}
+            </button>
+          ))}
         </div>
 
         <nav className="sidebar__nav">
@@ -73,11 +89,13 @@ export default function Home() {
       </aside>
 
       <section
-        className={activeSection === "Импорт JSON" ? "workspace workspace--import" : "workspace"}
+        className={isWorkspacePage ? "workspace workspace--import" : "workspace"}
         aria-label="Рабочая область"
       >
         {activeSection === "Импорт JSON" ? (
           <ImportPage />
+        ) : activeSection === "Пользователи и роли" ? (
+          <UsersPage currentRole={currentRole} />
         ) : (
           <div className="placeholder">
             <div className="placeholder__eyebrow">Раздел</div>
@@ -130,6 +148,164 @@ function NavGroup({
   );
 }
 
+function UsersPage({ currentRole }: { currentRole: AppRole }) {
+  const [username, setUsername] = useState("");
+  const [newUserRole, setNewUserRole] = useState<AppRole>("operator");
+  const [users, setUsers] = useState<UserRecord[]>([]);
+  const [status, setStatus] = useState("Загрузка списка пользователей.");
+  const [busy, setBusy] = useState<"load" | "create" | null>(null);
+
+  const canManageUsers = currentRole === "admin";
+
+  useEffect(() => {
+    if (!canManageUsers) {
+      setUsers([]);
+      setStatus("Для управления пользователями нужна роль admin.");
+      return;
+    }
+
+    let cancelled = false;
+    const loadUsers = async () => {
+      setBusy("load");
+      try {
+        const response = await fetch(`${apiBaseUrl}/users`, {
+          headers: buildRoleHeaders(currentRole),
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const result = (await response.json()) as UserRecord[];
+        if (!cancelled) {
+          setUsers(result);
+          setStatus(result.length > 0 ? "Список пользователей загружен." : "Пользователей пока нет.");
+        }
+      } catch {
+        if (!cancelled) {
+          setStatus("Не удалось загрузить список пользователей.");
+        }
+      } finally {
+        if (!cancelled) {
+          setBusy(null);
+        }
+      }
+    };
+
+    void loadUsers();
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageUsers, currentRole]);
+
+  const createUser = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextUsername = username.trim();
+    if (!nextUsername) {
+      setStatus("Введите username.");
+      return;
+    }
+    if (!canManageUsers) {
+      setStatus("Создавать пользователей может только admin.");
+      return;
+    }
+
+    setBusy("create");
+    try {
+      const response = await fetch(`${apiBaseUrl}/users`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...buildRoleHeaders(currentRole),
+        },
+        body: JSON.stringify({ username: nextUsername, role: newUserRole }),
+      });
+
+      if (response.status === 409) {
+        setStatus("Пользователь с таким username уже есть.");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const created = (await response.json()) as UserRecord;
+      setUsers((currentUsers) => [...currentUsers, created]);
+      setUsername("");
+      setStatus(`Пользователь ${created.username} создан.`);
+    } catch {
+      setStatus("Не удалось создать пользователя.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="users-page">
+      <div className="import-head">
+        <div>
+          <h1>Пользователи и роли</h1>
+          <p>Создание пользователей доступно только роли admin.</p>
+        </div>
+        <div className="import-chip-row">
+          <div className="import-chip">admin</div>
+          <div className="import-chip">operator</div>
+        </div>
+      </div>
+
+      <div className="users-grid">
+        <form className="users-panel" onSubmit={createUser}>
+          <div className="users-panel__title">Новый пользователь</div>
+          <label className="field">
+            <span>Username</span>
+            <input
+              disabled={!canManageUsers || busy !== null}
+              maxLength={100}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="operator-1"
+              value={username}
+            />
+          </label>
+          <label className="field">
+            <span>Роль</span>
+            <select
+              disabled={!canManageUsers || busy !== null}
+              onChange={(event) => setNewUserRole(event.target.value as AppRole)}
+              value={newUserRole}
+            >
+              <option value="operator">operator</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+          <button className="import-button import-button--primary" disabled={!canManageUsers || busy !== null} type="submit">
+            {busy === "create" ? "Создаем..." : "Создать"}
+          </button>
+          <div className="import-status">{status}</div>
+        </form>
+
+        <div className="users-panel users-panel--list">
+          <div className="users-panel__title">Список пользователей</div>
+          {busy === "load" ? (
+            <div className="users-empty">Загрузка...</div>
+          ) : users.length > 0 ? (
+            <div className="users-list">
+              {users.map((user) => (
+                <div className="users-row" key={user.id}>
+                  <div>
+                    <strong>{user.username}</strong>
+                    <span>{formatDateTime(user.created_at)}</span>
+                  </div>
+                  <span className="users-role">{user.role}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="users-empty">{canManageUsers ? "Пользователей пока нет." : "Недоступно для operator."}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type ImportSummary = {
   fileName: string;
   sizeBytes: number;
@@ -140,6 +316,13 @@ type ImportSummary = {
   teacherCount: number;
   roomCount: number;
   subjectCount: number;
+};
+
+type UserRecord = {
+  id: number;
+  username: string;
+  role: AppRole;
+  created_at: string;
 };
 
 type ImportApiResult = {
@@ -458,4 +641,21 @@ function formatBytes(bytes: number): string {
   }
 
   return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function buildRoleHeaders(role: AppRole): HeadersInit {
+  return {
+    "X-Role": role,
+    "X-Actor": role,
+  };
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
