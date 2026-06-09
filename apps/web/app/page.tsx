@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import {
   CalendarDays,
   ClipboardList,
@@ -11,7 +14,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 const primaryNav = [
-  { label: "Расписание", icon: CalendarDays, active: true },
+  { label: "Расписание", icon: CalendarDays },
   { label: "Импорт JSON", icon: FileJson },
   { label: "История изменений", icon: History },
 ];
@@ -27,7 +30,11 @@ const adminNav = [
   { label: "Аудит действий", icon: ShieldCheck },
 ];
 
+const defaultSection = "Расписание";
+
 export default function Home() {
+  const [activeSection, setActiveSection] = useState(defaultSection);
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="Основная навигация">
@@ -42,13 +49,34 @@ export default function Home() {
         </div>
 
         <nav className="sidebar__nav">
-          <NavGroup title="Основное" items={primaryNav} />
-          <NavGroup title="Операции" items={operationsNav} />
-          <NavGroup title="Администрирование" items={adminNav} />
+          <NavGroup
+            activeSection={activeSection}
+            items={primaryNav}
+            onSelect={setActiveSection}
+            title="Основное"
+          />
+          <NavGroup
+            activeSection={activeSection}
+            items={operationsNav}
+            onSelect={setActiveSection}
+            title="Операции"
+          />
+          <NavGroup
+            activeSection={activeSection}
+            items={adminNav}
+            onSelect={setActiveSection}
+            title="Администрирование"
+          />
         </nav>
       </aside>
 
-      <section className="workspace" aria-label="Рабочая область" />
+      <section className="workspace" aria-label="Рабочая область">
+        <div className="placeholder">
+          <div className="placeholder__eyebrow">Раздел</div>
+          <h1>{activeSection}</h1>
+          <p>Раздел в разработке.</p>
+        </div>
+      </section>
     </main>
   );
 }
@@ -56,10 +84,19 @@ export default function Home() {
 type NavItem = {
   label: string;
   icon: LucideIcon;
-  active?: boolean;
 };
 
-function NavGroup({ title, items }: { title: string; items: NavItem[] }) {
+function NavGroup({
+  activeSection,
+  items,
+  onSelect,
+  title,
+}: {
+  activeSection: string;
+  items: NavItem[];
+  onSelect: (section: string) => void;
+  title: string;
+}) {
   return (
     <div className="nav-group">
       <div className="nav-group__title">{title}</div>
@@ -68,8 +105,10 @@ function NavGroup({ title, items }: { title: string; items: NavItem[] }) {
           const Icon = item.icon;
           return (
             <button
-              className={item.active ? "nav-item nav-item--active" : "nav-item"}
+              aria-current={activeSection === item.label ? "page" : undefined}
+              className={activeSection === item.label ? "nav-item nav-item--active" : "nav-item"}
               key={item.label}
+              onClick={() => onSelect(item.label)}
               type="button"
             >
               <Icon aria-hidden="true" className="nav-item__icon" size={18} strokeWidth={2} />
