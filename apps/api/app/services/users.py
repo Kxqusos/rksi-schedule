@@ -119,6 +119,20 @@ def revoke_user(session, user_id: int, actor: Actor) -> UserResponse:
     return _user_response(user, role_name)
 
 
+def change_user_password(session, user_id: int, password: str, actor: Actor) -> UserResponse:
+    user = session.get(User, user_id)
+    if user is None:
+        raise UserNotFoundError(user_id)
+
+    user.password_hash = hash_password(password)
+    session.flush()
+    role_name = session.scalar(select(Role.name).where(Role.id == user.role_id))
+    if role_name is None:
+        raise UserNotFoundError(user_id)
+    _audit(session, action="change_password", user=user, actor=actor, payload={"username": user.username})
+    return _user_response(user, role_name)
+
+
 def _user_response(user: User, role_name: str) -> UserResponse:
     return UserResponse(
         id=user.id,

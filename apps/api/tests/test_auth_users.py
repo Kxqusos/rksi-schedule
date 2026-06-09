@@ -174,3 +174,92 @@ def test_admin_can_view_credentials_and_revoke_user(tmp_path, monkeypatch):
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert session_response.status_code == 200
+
+
+def test_admin_can_change_user_password(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'change_password.db'}"
+    migrate_database(database_url)
+    monkeypatch.setenv("ADMIN_USERNAME", "root")
+    monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
+    app.state.database_url = database_url
+    bootstrap_admin(database_url)
+    client = TestClient(app)
+
+    admin_token = client.post(
+        "/auth/login",
+        json={"username": "root", "password": "root-password"},
+    ).json()["access_token"]
+    create_response = client.post(
+        "/users",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "username": "operator-5",
+            "display_name": "Operator Five",
+            "password": "old-password",
+            "role": "operator",
+        },
+    )
+    user_id = create_response.json()["id"]
+
+    update_response = client.post(
+        f"/users/{user_id}/password",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"password": "new-password"},
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["username"] == "operator-5"
+    assert "password" not in update_response.json()
+    assert "password_hash" not in update_response.json()
+
+    old_login = client.post(
+        "/auth/login",
+        json={"username": "operator-5", "password": "old-password"},
+    )
+    assert old_login.status_code == 401
+
+    new_login = client.post(
+        "/auth/login",
+        json={"username": "operator-5", "password": "new-password"},
+    )
+    assert new_login.status_code == 200
+
+
+def test_operator_cannot_change_user_password(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'change_password_forbidden.db'}"
+    migrate_database(database_url)
+    monkeypatch.setenv("ADMIN_USERNAME", "root")
+    monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
+    app.state.database_url = database_url
+    bootstrap_admin(database_url)
+    client = TestClient(app)
+
+    admin_token = client.post(
+        "/auth/login",
+        json={"username": "root", "password": "root-password"},
+    ).json()["access_token"]
+    create_response = client.post(
+        "/users",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "username": "operator-6",
+            "display_name": "Operator Six",
+            "password": "old-password",
+            "role": "operator",
+        },
+    )
+    user_id = create_response.json()["id"]
+    operator_token = client.post(
+        "/auth/login",
+        json={"username": "operator-6", "password": "old-password"},
+    ).json()["access_token"]
+
+    update_response = client.post(
+        f"/users/{user_id}/password",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={"password": "new-password"},
+    )
+
+    assert update_response.status_code == 403

@@ -7,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_cors_origins, get_database_url
 from app.routers.auth import router as auth_router
+from app.routers.rooms import router as rooms_router
 from app.routers.schedule import router as schedule_router
+from app.routers.teachers import router as teachers_router
 from app.routers.users import router as users_router
 from app.services.bootstrap import bootstrap_admin
 from app.services.import_schedule import import_schedule_from_payload
@@ -28,7 +30,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router)
+app.include_router(rooms_router)
 app.include_router(schedule_router)
+app.include_router(teachers_router)
 app.include_router(users_router)
 
 

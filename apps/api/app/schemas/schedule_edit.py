@@ -58,3 +58,22 @@ class LessonResponse(BaseModel):
     time_slot: int
     subgroup: int
     lesson_type: str
+
+
+class ScheduleProblemResponse(BaseModel):
+    severity: str
+    code: str
+    message: str
+    date: Date | None = None
+    week_number: int | None = None
+    time_slot: int | None = None
+    group_name: str | None = None
+    teacher_name: str | None = None
+    room_name: str | None = None
+    lesson_ids: list[int] = Field(default_factory=list)
+
+
+class ScheduleSlotRoomResponse(BaseModel):
+    room_name: str
+    building: str
+    lesson: LessonResponse | None

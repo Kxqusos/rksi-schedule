@@ -6,12 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.config import get_database_url
 from app.db.session import build_session_factory
-from app.schemas.user import UserCreateRequest
+from app.schemas.user import UserCreateRequest, UserPasswordUpdateRequest
 from app.services.auth.permissions import Actor, require_admin_actor
 from app.services.users import (
     DuplicateUserError,
     RoleNotFoundError,
     UserNotFoundError,
+    change_user_password,
     create_user,
     get_user_credentials,
     list_users,
@@ -79,6 +80,24 @@ def revoke(
         try:
             with session.begin():
                 result = revoke_user(session, user_id, actor)
+        except UserNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="user not found") from exc
+    return result.model_dump(mode="json")
+
+
+@router.post("/{user_id}/password")
+def change_password(
+    request: Request,
+    user_id: int,
+    payload: UserPasswordUpdateRequest,
+    actor: Annotated[Actor, Depends(require_admin_actor)],
+) -> dict:
+    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
+    _engine, session_factory = build_session_factory(database_url)
+    with session_factory() as session:
+        try:
+            with session.begin():
+                result = change_user_password(session, user_id, payload.password, actor)
         except UserNotFoundError as exc:
             raise HTTPException(status_code=404, detail="user not found") from exc
     return result.model_dump(mode="json")
