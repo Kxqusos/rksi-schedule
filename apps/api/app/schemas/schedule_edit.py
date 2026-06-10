@@ -49,6 +49,8 @@ class LessonResponse(BaseModel):
     group_name: str
     subject: str
     teacher_name: str | None
+    teacher_is_absent: bool = False
+    teacher_absence_reason: str = ""
     room_name: str | None
     date: Date
     time_start: Time
@@ -76,6 +78,8 @@ class ScheduleProblemResponse(BaseModel):
 class ScheduleSlotRoomResponse(BaseModel):
     room_name: str
     building: str
+    room_is_excluded: bool = False
+    room_exclusion_reason: str = ""
     lesson: LessonResponse | None
 
 

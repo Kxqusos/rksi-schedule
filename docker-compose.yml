@@ -1,15 +1,115 @@
 services:
   postgres:
     image: postgres:17
+    restart: unless-stopped
     environment:
       POSTGRES_DB: schedule_rks
       POSTGRES_USER: schedule_rks
       POSTGRES_PASSWORD: schedule_rks
     ports:
       - "55432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U schedule_rks -d schedule_rks"]
-      interval: 2s
+      interval: 5s
       timeout: 3s
       retries: 20
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.dev
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://schedule_rks:schedule_rks@postgres:5432/schedule_rks
+      CORS_ORIGINS: http://localhost:3003,http://127.0.0.1:3003
+      PYTHONPATH: /workspace/apps/api
+      WATCHFILES_FORCE_POLLING: "true"
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/workspace/apps/api
+      - ./7.json:/workspace/7.json:ro
+      - ./.env:/workspace/.env:ro
+      - ./.docker/api/uv-cache:/root/.cache/uv
+    command: >
+      sh -c "alembic upgrade head &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload --reload-dir app --reload-dir alembic"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/api/app
+          target: /workspace/apps/api/app
+        - action: sync
+          path: ./apps/api/alembic
+          target: /workspace/apps/api/alembic
+        - action: rebuild
+          path: ./apps/api/pyproject.toml
+        - action: rebuild
+          path: ./pyproject.toml
+        - action: rebuild
+          path: ./uv.lock
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.dev
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:8001
+      NEXT_TELEMETRY_DISABLED: "1"
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3003:3003"
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./apps/web/app:/workspace/apps/web/app
+      - ./apps/web/next.config.ts:/workspace/apps/web/next.config.ts
+      - ./apps/web/tsconfig.json:/workspace/apps/web/tsconfig.json
+      - ./apps/web/next-env.d.ts:/workspace/apps/web/next-env.d.ts
+      - ./.docker/web/pnpm-store:/pnpm/store
+    command: pnpm --dir apps/web dev --hostname 0.0.0.0 --port 3003
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3003').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/web/app
+          target: /workspace/apps/web/app
+        - action: rebuild
+          path: ./apps/web/package.json
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./pnpm-workspace.yaml
+        - action: rebuild
+          path: ./pnpm-lock.yaml

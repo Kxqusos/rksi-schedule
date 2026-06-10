@@ -1,0 +1,15 @@
+.git
+.venv
+.uv-cache
+.superpowers
+.playwright-mcp
+.docker
+data
+node_modules
+apps/web/node_modules
+apps/web/.next
+apps/web/*.tsbuildinfo
+__pycache__
+*.pyc
+*.db
+.DS_Store

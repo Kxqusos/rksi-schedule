@@ -1813,6 +1813,8 @@ function ImportPage() {
 type ScheduleSlotRow = {
   room_name: string;
   building: string;
+  room_is_excluded: boolean;
+  room_exclusion_reason: string;
   lesson: LessonRecord | null;
 };
 
@@ -1821,6 +1823,8 @@ type LessonRecord = {
   group_name: string;
   subject: string;
   teacher_name: string | null;
+  teacher_is_absent: boolean;
+  teacher_absence_reason: string;
   room_name: string | null;
   date: string;
   time_start: string;
@@ -1836,11 +1840,15 @@ type ScheduleEditorState =
   | {
       mode: "create";
       roomName: string;
+      roomIsExcluded: boolean;
+      roomExclusionReason: string;
     }
   | {
       mode: "update";
       lesson: LessonRecord;
       roomName: string;
+      roomIsExcluded: boolean;
+      roomExclusionReason: string;
     };
 
 const lessonTimeSlots: Record<number, { start: string; end: string }> = {
@@ -1963,7 +1971,13 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
 
   const openRowEditor = (row: ScheduleSlotRow) => {
     if (row.lesson) {
-      setEditorState({ mode: "update", lesson: row.lesson, roomName: row.room_name });
+      setEditorState({
+        mode: "update",
+        lesson: row.lesson,
+        roomName: row.room_name,
+        roomIsExcluded: row.room_is_excluded,
+        roomExclusionReason: row.room_exclusion_reason,
+      });
       setEditGroupName(row.lesson.group_name);
       setEditSubject(row.lesson.subject);
       setEditTeacherName(row.lesson.teacher_name ?? "");
@@ -1971,7 +1985,12 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
       return;
     }
 
-    setEditorState({ mode: "create", roomName: row.room_name });
+    setEditorState({
+      mode: "create",
+      roomName: row.room_name,
+      roomIsExcluded: row.room_is_excluded,
+      roomExclusionReason: row.room_exclusion_reason,
+    });
     setEditGroupName("");
     setEditSubject("");
     setEditTeacherName("");
@@ -2043,7 +2062,13 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
           return row;
         });
       });
-      setEditorState({ mode: "update", lesson: updated, roomName: updated.room_name ?? editorState.roomName });
+      setEditorState({
+        mode: "update",
+        lesson: updated,
+        roomName: updated.room_name ?? editorState.roomName,
+        roomIsExcluded: editorState.roomIsExcluded,
+        roomExclusionReason: editorState.roomExclusionReason,
+      });
       setEditGroupName(updated.group_name);
       setEditSubject(updated.subject);
       setEditTeacherName(updated.teacher_name ?? "");
@@ -2064,6 +2089,12 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
   };
 
   const currentLesson = editorState?.mode === "update" ? editorState.lesson : null;
+  const currentTeacherAbsenceReason = currentLesson?.teacher_is_absent
+    ? currentLesson.teacher_absence_reason || "Причина не указана."
+    : "";
+  const currentRoomExclusionReason = editorState?.roomIsExcluded
+    ? editorState.roomExclusionReason || "Причина не указана."
+    : "";
   const targetTimeSlot = lessonTimeSlots[selectedSlot] ?? lessonTimeSlots[1];
   const targetTimeLabel = currentLesson
     ? `${formatTimeShort(currentLesson.time_start)} – ${formatTimeShort(currentLesson.time_end)}`
@@ -2150,6 +2181,25 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
                 </div>
               </div>
             </section>
+            {currentTeacherAbsenceReason || currentRoomExclusionReason ? (
+              <section className="schedule-edit__lint" aria-label="Ограничения">
+                <div className="schedule-edit__section-head">
+                  <span>Ограничения</span>
+                </div>
+                {currentTeacherAbsenceReason ? (
+                  <div className="schedule-edit__warning schedule-edit__warning--error">
+                    <strong>Преподаватель отсутствует</strong>
+                    <span>{currentTeacherAbsenceReason}</span>
+                  </div>
+                ) : null}
+                {currentRoomExclusionReason ? (
+                  <div className="schedule-edit__warning schedule-edit__warning--error">
+                    <strong>Кабинет исключён</strong>
+                    <span>{currentRoomExclusionReason}</span>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
             <section className="schedule-edit__section" aria-label="Новые параметры">
               <div className="schedule-edit__section-head">
                 <span>После</span>
@@ -2223,16 +2273,34 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
                 </div>
                 {buildingGroup.rooms.map((row) => (
                   <button
-                    className="schedule-table__row schedule-table__row--editable"
+                    className={
+                      row.room_is_excluded || row.lesson?.teacher_is_absent
+                        ? "schedule-table__row schedule-table__row--editable schedule-table__row--problem"
+                        : "schedule-table__row schedule-table__row--editable"
+                    }
                     disabled={savingLesson}
                     key={`${buildingGroup.building}-${row.room_name}`}
                     onClick={() => openRowEditor(row)}
                     type="button"
                   >
-                    <div className="schedule-table__room">{row.room_name}</div>
+                    <div className="schedule-table__room">
+                      <span>{row.room_name}</span>
+                      {row.room_is_excluded ? (
+                        <span className="schedule-reason-badge" title={row.room_exclusion_reason || "Причина не указана."}>
+                          Кабинет: {formatScheduleReason(row.room_exclusion_reason)}
+                        </span>
+                      ) : null}
+                    </div>
                     <div>{row.lesson ? row.lesson.group_name : "—"}</div>
                     <div>{row.lesson ? row.lesson.subject : "Свободно"}</div>
-                    <div>{row.lesson?.teacher_name ?? "—"}</div>
+                    <div className="schedule-table__teacher">
+                      <span>{row.lesson?.teacher_name ?? "—"}</span>
+                      {row.lesson?.teacher_is_absent ? (
+                        <span className="schedule-reason-badge" title={row.lesson.teacher_absence_reason || "Причина не указана."}>
+                          Преподаватель: {formatScheduleReason(row.lesson.teacher_absence_reason)}
+                        </span>
+                      ) : null}
+                    </div>
                     <div>{row.lesson ? `${formatTimeShort(row.lesson.time_start)} – ${formatTimeShort(row.lesson.time_end)}` : "—"}</div>
                     <div>
                       <span className={row.lesson ? "schedule-pill schedule-pill--busy" : "schedule-pill schedule-pill--free"}>
@@ -2591,4 +2659,8 @@ function formatProblemMeta(problem: ScheduleProblem) {
 
 function formatTimeShort(value: string) {
   return value.slice(0, 5);
+}
+
+function formatScheduleReason(value: string) {
+  return value.trim() || "Причина не указана";
 }

@@ -189,6 +189,8 @@ def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleS
         ScheduleSlotRoomResponse(
             room_name=room.source_name,
             building=_room_building(room.source_name),
+            room_is_excluded=room.is_excluded,
+            room_exclusion_reason=room.exclusion_reason,
             lesson=(room_lessons[0] if (room_lessons := lessons_by_room.get(room.source_name)) else None),
         )
         for room in rooms
@@ -201,10 +203,13 @@ def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleS
         for lesson in room_lessons
     ]
     for lesson in [*unplaced_lessons, *hidden_room_lessons]:
+        room = session.scalar(select(Room).where(Room.source_name == lesson.room_name)) if lesson.room_name else None
         rows.append(
             ScheduleSlotRoomResponse(
                 room_name=lesson.room_name or "Без кабинета",
                 building=_room_building(lesson.room_name or ""),
+                room_is_excluded=room.is_excluded if room else False,
+                room_exclusion_reason=room.exclusion_reason if room else "",
                 lesson=lesson,
             )
         )
@@ -708,11 +713,23 @@ def _lesson_response(session, lesson: Lesson) -> LessonResponse:
     subject = session.get(Subject, lesson.subject_id)
     teacher = session.get(Teacher, lesson.teacher_id) if lesson.teacher_id else None
     room = session.get(Room, lesson.room_id) if lesson.room_id else None
+    teacher_absence = (
+        teacher_absence_for_slot(
+            session,
+            teacher_id=lesson.teacher_id,
+            lesson_date=lesson.lesson_date,
+            time_slot=lesson.time_slot,
+        )
+        if lesson.teacher_id
+        else None
+    )
     return LessonResponse(
         id=lesson.id,
         group_name=group.source_name if group else "",
         subject=subject.source_name if subject else "",
         teacher_name=teacher.source_name if teacher else None,
+        teacher_is_absent=teacher_absence is not None,
+        teacher_absence_reason=teacher_absence.reason if teacher_absence else "",
         room_name=room.source_name if room else None,
         date=lesson.lesson_date,
         time_start=lesson.start_time,

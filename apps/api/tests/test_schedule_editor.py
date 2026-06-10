@@ -573,6 +573,46 @@ def test_schedule_problems_linter_lists_excluded_room_lessons(tmp_path, monkeypa
     assert "Ремонт" in excluded_problem["message"]
 
 
+def test_schedule_lesson_rows_include_absence_and_room_exclusion_reasons(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'schedule_row_reasons.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    client = TestClient(app)
+    _seed_group_lessons(database_url, group_name="ROW-REASON", slots=(1,), room_prefix="row-reason")
+
+    teacher = _teacher_by_source_id(database_url, "ROW-REASON teacher")
+    absence_response = client.post(
+        f"/teachers/{teacher['id']}/absences",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={"date": "2026-02-23", "all_day": True, "reason": "Больничный"},
+    )
+    assert absence_response.status_code == 201
+    rooms = client.get("/rooms", headers={"Authorization": f"Bearer {operator_token}"}).json()
+    room = next(room for room in rooms if room["name"] == "row-reason-1")
+    exclusion_response = client.post(
+        f"/rooms/{room['id']}/exclusion",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={"reason": "Ремонт"},
+    )
+    assert exclusion_response.status_code == 200
+
+    response = client.get(
+        "/schedule/lessons",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        params={"date": "2026-02-23", "time_slot": 1},
+    )
+
+    assert response.status_code == 200
+    rows = response.json()
+    row = next(row for row in rows if row["room_name"] == "row-reason-1")
+    assert row["room_is_excluded"] is True
+    assert row["room_exclusion_reason"] == "Ремонт"
+    assert row["lesson"]["teacher_is_absent"] is True
+    assert row["lesson"]["teacher_absence_reason"] == "Больничный"
+
+
 def test_foreign_language_split_subgroups_are_not_multiple_teacher_error(tmp_path, monkeypatch):
     database_url = f"sqlite:///{tmp_path / 'foreign_language_split.db'}"
     migrate_database(database_url)

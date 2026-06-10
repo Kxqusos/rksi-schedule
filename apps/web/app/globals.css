@@ -1099,9 +1099,40 @@ button {
   color: var(--text);
 }
 
+.schedule-table__row--problem {
+  background: rgba(218, 88, 88, 0.055);
+}
+
 .schedule-table__room {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   color: var(--text);
   font-weight: 700;
+}
+
+.schedule-table__teacher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.schedule-reason-badge {
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border: 1px solid rgba(218, 88, 88, 0.36);
+  border-radius: 999px;
+  background: rgba(218, 88, 88, 0.1);
+  color: #f0a0a0;
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: normal;
 }
 
 .schedule-pill {
@@ -1239,6 +1270,10 @@ button {
 .schedule-edit__warning:first-of-type {
   border-top: 0;
   padding-top: 0;
+}
+
+.schedule-edit__warning--error {
+  border-color: rgba(218, 88, 88, 0.28);
 }
 
 .schedule-edit__warning strong {

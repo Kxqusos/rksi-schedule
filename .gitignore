@@ -5,6 +5,8 @@
 .pytest_cache/
 .venv/
 .uv-cache/
+.docker/
+data/
 .superpowers/
 __pycache__/
 node_modules/
