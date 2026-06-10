@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 
 from app.models import AuditLog, Lesson, Room
-from app.schemas.room import RoomCreateRequest, RoomResponse
+from app.schemas.room import RoomCreateRequest, RoomExclusionRequest, RoomResponse
 from app.services.auth.permissions import Actor
 
 
@@ -60,12 +60,53 @@ def delete_room(session, room_id: int, actor: Actor) -> None:
     session.delete(room)
 
 
+def exclude_room(session, room_id: int, payload: RoomExclusionRequest, actor: Actor) -> RoomResponse:
+    room = session.get(Room, room_id)
+    if room is None:
+        raise RoomNotFoundError()
+
+    room.is_excluded = True
+    room.exclusion_reason = payload.reason.strip()
+    session.flush()
+    lesson_count = session.scalar(select(func.count(Lesson.id)).where(Lesson.room_id == room.id)) or 0
+    _audit(
+        session,
+        action="exclude",
+        room=room,
+        actor=actor,
+        payload={"name": room.source_name, "reason": room.exclusion_reason},
+    )
+    return _room_response(room, int(lesson_count))
+
+
+def restore_room(session, room_id: int, actor: Actor) -> RoomResponse:
+    room = session.get(Room, room_id)
+    if room is None:
+        raise RoomNotFoundError()
+
+    previous_reason = room.exclusion_reason
+    room.is_excluded = False
+    room.exclusion_reason = ""
+    session.flush()
+    lesson_count = session.scalar(select(func.count(Lesson.id)).where(Lesson.room_id == room.id)) or 0
+    _audit(
+        session,
+        action="restore",
+        room=room,
+        actor=actor,
+        payload={"name": room.source_name, "previous_reason": previous_reason},
+    )
+    return _room_response(room, int(lesson_count))
+
+
 def _room_response(room: Room, lesson_count: int) -> RoomResponse:
     return RoomResponse(
         id=room.id,
         name=room.source_name,
         building=_room_building(room.source_name),
         lesson_count=lesson_count,
+        is_excluded=room.is_excluded,
+        exclusion_reason=room.exclusion_reason,
     )
 
 

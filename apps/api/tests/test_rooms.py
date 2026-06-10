@@ -114,6 +114,39 @@ def test_operator_can_manage_rooms(tmp_path, monkeypatch):
     assert delete_response.status_code == 204
 
 
+def test_operator_can_exclude_and_restore_room(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'exclude_room.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    client = TestClient(app)
+
+    rooms = client.get("/rooms", headers={"Authorization": f"Bearer {operator_token}"}).json()
+    room = next(room for room in rooms if room["name"] == "103/1")
+
+    exclude_response = client.post(
+        f"/rooms/{room['id']}/exclusion",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={"reason": "Ремонт"},
+    )
+
+    assert exclude_response.status_code == 200
+    excluded = exclude_response.json()
+    assert excluded["is_excluded"] is True
+    assert excluded["exclusion_reason"] == "Ремонт"
+
+    restore_response = client.delete(
+        f"/rooms/{room['id']}/exclusion",
+        headers={"Authorization": f"Bearer {operator_token}"},
+    )
+
+    assert restore_response.status_code == 200
+    restored = restore_response.json()
+    assert restored["is_excluded"] is False
+    assert restored["exclusion_reason"] == ""
+
+
 def _seed_import(database_url: str) -> None:
     source = Path(__file__).resolve().parents[3] / "7.json"
     import_schedule_from_json(source, database_url=database_url)

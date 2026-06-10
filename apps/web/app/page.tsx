@@ -10,7 +10,6 @@ import {
   Trash2,
   TriangleAlert,
   UserRound,
-  UserRoundX,
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -21,7 +20,6 @@ const primaryNav = [
 ];
 
 const operationsNav = [
-  { label: "Отсутствующие преподаватели", icon: UserRoundX },
   { label: "Замены занятий", icon: ClipboardList },
   { label: "Проблемы", icon: TriangleAlert },
   { label: "Кабинеты", icon: DoorOpen },
@@ -34,6 +32,7 @@ const adminNav = [
 
 const defaultSection = "Замены занятий";
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
+const lessonSlots = [1, 2, 3, 4, 5, 6, 7];
 type AppRole = "admin" | "operator";
 const tokenStorageKey = "schedule-rks.access-token";
 
@@ -704,6 +703,8 @@ type RoomRecord = {
   name: string;
   building: string;
   lesson_count: number;
+  is_excluded: boolean;
+  exclusion_reason: string;
 };
 
 type TeacherRecord = {
@@ -712,6 +713,16 @@ type TeacherRecord = {
   name: string;
   post: string;
   lesson_count: number;
+  absences: TeacherAbsenceRecord[];
+};
+
+type TeacherAbsenceRecord = {
+  id: number;
+  date: string;
+  all_day: boolean;
+  time_slot_start: number | null;
+  time_slot_end: number | null;
+  reason: string;
 };
 
 type ScheduleProblem = {
@@ -731,8 +742,34 @@ type LessonMutationResponse = LessonRecord & {
   warnings?: ScheduleProblem[];
 };
 
+const problemFilterLabels: Record<string, string> = {
+  all: "Все",
+  group_week_limit_exceeded: "Группы >18 пар",
+  group_day_limit_exceeded: "Группы >4 пар в день",
+  group_day_minimum_not_met: "Группы <2 пар в день",
+  group_day_window: "Окна у групп",
+  group_slot_multiple_teachers: "2 преподавателя у группы",
+  teacher_double_booked: "Преподаватель на 2 группы",
+  room_double_booked: "Кабинет на 2 группы",
+  absent_teacher_scheduled: "Отсутствующие преподаватели",
+  excluded_room_scheduled: "Исключённые кабинеты",
+};
+
+const defaultProblemFilterCodes = [
+  "group_week_limit_exceeded",
+  "group_day_limit_exceeded",
+  "group_day_minimum_not_met",
+  "group_day_window",
+  "group_slot_multiple_teachers",
+  "teacher_double_booked",
+  "room_double_booked",
+  "absent_teacher_scheduled",
+  "excluded_room_scheduled",
+];
+
 function ProblemsPage({ accessToken }: { accessToken: string }) {
   const [problems, setProblems] = useState<ScheduleProblem[]>([]);
+  const [activeFilter, setActiveFilter] = useState("all");
   const [status, setStatus] = useState("Загрузка списка проблем.");
   const [busy, setBusy] = useState(false);
 
@@ -761,6 +798,20 @@ function ProblemsPage({ accessToken }: { accessToken: string }) {
 
   const errorCount = problems.filter((problem) => problem.severity === "error").length;
   const warningCount = problems.filter((problem) => problem.severity === "warning").length;
+  const problemFilterOptions = useMemo(() => buildProblemFilterOptions(problems), [problems]);
+  const filteredProblems = useMemo(
+    () => (activeFilter === "all" ? problems : problems.filter((problem) => problem.code === activeFilter)),
+    [activeFilter, problems],
+  );
+
+  useEffect(() => {
+    if (activeFilter === "all") {
+      return;
+    }
+    if (!problemFilterOptions.some((option) => option.code === activeFilter)) {
+      setActiveFilter("all");
+    }
+  }, [activeFilter, problemFilterOptions]);
 
   return (
     <div className="problems-page">
@@ -781,9 +832,24 @@ function ProblemsPage({ accessToken }: { accessToken: string }) {
         </button>
       </div>
 
+      <div className="problems-filters" aria-label="Фильтр проблем">
+        {problemFilterOptions.map((option) => (
+          <button
+            aria-pressed={activeFilter === option.code}
+            className={activeFilter === option.code ? "problems-filter problems-filter--active" : "problems-filter"}
+            key={option.code}
+            onClick={() => setActiveFilter(option.code)}
+            type="button"
+          >
+            <span>{option.label}</span>
+            <strong>{option.count}</strong>
+          </button>
+        ))}
+      </div>
+
       <div className="problems-list">
-        {problems.length > 0 ? (
-          problems.map((problem, index) => (
+        {filteredProblems.length > 0 ? (
+          filteredProblems.map((problem, index) => (
             <article
               className={problem.severity === "error" ? "problem-card problem-card--error" : "problem-card problem-card--warning"}
               key={`${problem.code}-${problem.date ?? "week"}-${problem.time_slot ?? 0}-${index}`}
@@ -804,7 +870,7 @@ function ProblemsPage({ accessToken }: { accessToken: string }) {
             </article>
           ))
         ) : (
-          <div className="users-empty">{busy ? "Загрузка..." : "Проблем не найдено."}</div>
+          <div className="users-empty">{busy ? "Загрузка..." : "Проблем по этому фильтру не найдено."}</div>
         )}
       </div>
     </div>
@@ -814,8 +880,10 @@ function ProblemsPage({ accessToken }: { accessToken: string }) {
 function RoomsPage({ accessToken }: { accessToken: string }) {
   const [rooms, setRooms] = useState<RoomRecord[]>([]);
   const [roomName, setRoomName] = useState("");
+  const [exclusionRoom, setExclusionRoom] = useState<RoomRecord | null>(null);
+  const [exclusionReason, setExclusionReason] = useState("");
   const [status, setStatus] = useState("Загрузка списка кабинетов.");
-  const [busy, setBusy] = useState<"load" | "create" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"load" | "create" | "delete" | "exclusion" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -851,6 +919,21 @@ function RoomsPage({ accessToken }: { accessToken: string }) {
   }, [accessToken]);
 
   const groupedRooms = useMemo(() => groupRoomsByBuilding(rooms), [rooms]);
+
+  useEffect(() => {
+    if (!exclusionRoom) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && busy !== "exclusion") {
+        setExclusionRoom(null);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, exclusionRoom]);
 
   const createRoom = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -914,6 +997,63 @@ function RoomsPage({ accessToken }: { accessToken: string }) {
     }
   };
 
+  const openExclusionDialog = (room: RoomRecord) => {
+    setExclusionRoom(room);
+    setExclusionReason(room.exclusion_reason);
+  };
+
+  const excludeRoom = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!exclusionRoom) {
+      setStatus("Выберите кабинет.");
+      return;
+    }
+
+    setBusy("exclusion");
+    try {
+      const response = await fetch(`${apiBaseUrl}/rooms/${exclusionRoom.id}/exclusion`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...buildAuthHeaders(accessToken),
+        },
+        body: JSON.stringify({ reason: exclusionReason.trim() }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const updated = (await response.json()) as RoomRecord;
+      setRooms((currentRooms) => currentRooms.map((room) => (room.id === updated.id ? updated : room)));
+      setExclusionRoom(null);
+      setExclusionReason("");
+      setStatus(`Кабинет ${updated.name} исключён из расписания.`);
+    } catch {
+      setStatus("Не удалось исключить кабинет.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const restoreRoom = async (room: RoomRecord) => {
+    setBusy("exclusion");
+    try {
+      const response = await fetch(`${apiBaseUrl}/rooms/${room.id}/exclusion`, {
+        method: "DELETE",
+        headers: buildAuthHeaders(accessToken),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const updated = (await response.json()) as RoomRecord;
+      setRooms((currentRooms) => currentRooms.map((currentRoom) => (currentRoom.id === updated.id ? updated : currentRoom)));
+      setStatus(`Кабинет ${updated.name} возвращён в расписание.`);
+    } catch {
+      setStatus("Не удалось вернуть кабинет.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="rooms-page">
       <div className="import-head">
@@ -957,22 +1097,39 @@ function RoomsPage({ accessToken }: { accessToken: string }) {
                 </div>
                 <div className="rooms-card-list">
                   {group.rooms.map((room) => (
-                    <div className="rooms-row" key={room.id}>
+                    <div className={room.is_excluded ? "rooms-row rooms-row--excluded" : "rooms-row"} key={room.id}>
                       <div className="rooms-row__body">
                         <strong>{room.name}</strong>
                         <span>{room.lesson_count} занятий</span>
+                        {room.is_excluded ? (
+                          <div className="rooms-exclusion">
+                            <span className="rooms-exclusion__badge">Исключён</span>
+                            {room.exclusion_reason ? <span>{room.exclusion_reason}</span> : null}
+                          </div>
+                        ) : null}
                       </div>
-                      <button
-                        aria-label={`Удалить кабинет ${room.name}`}
-                        className="users-row__action rooms-row__delete"
-                        disabled={busy !== null}
-                        onClick={() => deleteRoom(room)}
-                        title="Удалить"
-                        type="button"
-                      >
-                        <Trash2 aria-hidden="true" size={15} strokeWidth={2} />
-                        <span>Удалить</span>
-                      </button>
+                      <div className="rooms-row-actions">
+                        {room.is_excluded ? (
+                          <button className="users-row__action" disabled={busy !== null} onClick={() => restoreRoom(room)} type="button">
+                            Вернуть
+                          </button>
+                        ) : (
+                          <button className="users-row__action" disabled={busy !== null} onClick={() => openExclusionDialog(room)} type="button">
+                            Исключить
+                          </button>
+                        )}
+                        <button
+                          aria-label={`Удалить кабинет ${room.name}`}
+                          className="users-row__action rooms-row__delete"
+                          disabled={busy !== null}
+                          onClick={() => deleteRoom(room)}
+                          title="Удалить"
+                          type="button"
+                        >
+                          <Trash2 aria-hidden="true" size={15} strokeWidth={2} />
+                          <span>Удалить</span>
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -983,6 +1140,43 @@ function RoomsPage({ accessToken }: { accessToken: string }) {
           )}
         </div>
       </div>
+      {exclusionRoom ? (
+        <div className="teachers-modal" role="dialog" aria-modal="true" aria-labelledby="room-exclusion-title">
+          <button
+            aria-label="Закрыть меню исключения кабинета"
+            className="teachers-modal__backdrop"
+            disabled={busy === "exclusion"}
+            onClick={() => setExclusionRoom(null)}
+            type="button"
+          />
+          <form className="teachers-absence-dialog" onSubmit={excludeRoom}>
+            <div className="schedule-edit__section-head">
+              <span>Исключение кабинета</span>
+            </div>
+            <div className="teachers-absence-dialog__title" id="room-exclusion-title">
+              {exclusionRoom.name}
+            </div>
+            <label className="field">
+              <span>Причина</span>
+              <input
+                disabled={busy !== null}
+                maxLength={300}
+                onChange={(event) => setExclusionReason(event.target.value)}
+                placeholder="необязательно"
+                value={exclusionReason}
+              />
+            </label>
+            <div className="schedule-edit__actions">
+              <button className="users-row__action" disabled={busy === "exclusion"} onClick={() => setExclusionRoom(null)} type="button">
+                Отмена
+              </button>
+              <button className="import-button import-button--primary" disabled={busy !== null} type="submit">
+                {busy === "exclusion" ? "Сохраняем..." : "Исключить"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -992,8 +1186,12 @@ function TeachersPage({ accessToken }: { accessToken: string }) {
   const [teacherName, setTeacherName] = useState("");
   const [teacherId, setTeacherId] = useState("");
   const [teacherPost, setTeacherPost] = useState("");
+  const [absenceTeacher, setAbsenceTeacher] = useState<TeacherRecord | null>(null);
+  const [absenceDate, setAbsenceDate] = useState(toLocalDateInput(new Date()));
+  const [absenceSlots, setAbsenceSlots] = useState<number[]>(lessonSlots);
+  const [absenceReason, setAbsenceReason] = useState("");
   const [status, setStatus] = useState("Загрузка списка преподавателей.");
-  const [busy, setBusy] = useState<"load" | "create" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"load" | "create" | "delete" | "absence" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1072,6 +1270,138 @@ function TeachersPage({ accessToken }: { accessToken: string }) {
     }
   };
 
+  useEffect(() => {
+    if (!absenceTeacher) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && busy !== "absence") {
+        setAbsenceTeacher(null);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [absenceTeacher, busy]);
+
+  const openAbsenceDialog = (teacher: TeacherRecord) => {
+    setAbsenceTeacher(teacher);
+    setAbsenceDate(toLocalDateInput(new Date()));
+    setAbsenceSlots(lessonSlots);
+    setAbsenceReason("");
+  };
+
+  const toggleAbsenceSlot = (slot: number) => {
+    setAbsenceSlots((currentSlots) => {
+      if (currentSlots.includes(slot)) {
+        return currentSlots.filter((currentSlot) => currentSlot !== slot);
+      }
+      return [...currentSlots, slot].sort((left, right) => left - right);
+    });
+  };
+
+  const selectAllAbsenceSlots = () => {
+    setAbsenceSlots(lessonSlots);
+  };
+
+  const createAbsence = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!absenceTeacher) {
+      setStatus("Выберите преподавателя.");
+      return;
+    }
+    const selectedSlots = [...absenceSlots].sort((left, right) => left - right);
+    if (selectedSlots.length === 0) {
+      setStatus("Выберите минимум одно занятие.");
+      return;
+    }
+
+    setBusy("absence");
+    try {
+      const reason = absenceReason.trim();
+      const absenceRequests =
+        selectedSlots.length === lessonSlots.length
+          ? [
+              {
+                date: absenceDate,
+                all_day: true,
+                time_slot_start: null,
+                time_slot_end: null,
+                reason,
+              },
+            ]
+          : selectedSlots.map((slot) => ({
+              date: absenceDate,
+              all_day: false,
+              time_slot_start: slot,
+              time_slot_end: slot,
+              reason,
+            }));
+
+      const createdAbsences = await Promise.all(
+        absenceRequests.map(async (payload) => {
+          const response = await fetch(`${apiBaseUrl}/teachers/${absenceTeacher.id}/absences`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...buildAuthHeaders(accessToken),
+            },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) {
+            throw new Error(await response.text());
+          }
+          return (await response.json()) as TeacherAbsenceRecord;
+        }),
+      );
+
+      setTeachers((currentTeachers) =>
+        currentTeachers.map((teacher) =>
+          teacher.id === absenceTeacher.id
+            ? {
+                ...teacher,
+                absences: [...createdAbsences, ...teacher.absences],
+              }
+            : teacher,
+        ),
+      );
+      setAbsenceSlots(lessonSlots);
+      setAbsenceReason("");
+      setAbsenceTeacher(null);
+      setStatus("Отсутствие преподавателя отмечено.");
+    } catch {
+      setStatus("Не удалось отметить отсутствие.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteAbsence = async (teacher: TeacherRecord, absence: TeacherAbsenceRecord) => {
+    setBusy("absence");
+    try {
+      const response = await fetch(`${apiBaseUrl}/teachers/${teacher.id}/absences/${absence.id}`, {
+        method: "DELETE",
+        headers: buildAuthHeaders(accessToken),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      setTeachers((currentTeachers) =>
+        currentTeachers.map((item) =>
+          item.id === teacher.id
+            ? { ...item, absences: item.absences.filter((currentAbsence) => currentAbsence.id !== absence.id) }
+            : item,
+        ),
+      );
+      setStatus("Отметка отсутствия удалена.");
+    } catch {
+      setStatus("Не удалось удалить отметку отсутствия.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const deleteTeacher = async (teacher: TeacherRecord) => {
     const suffix = teacher.lesson_count > 0 ? ` ${teacher.lesson_count} занятий останутся без преподавателя.` : "";
     if (!window.confirm(`Удалить преподавателя ${teacher.name}?${suffix}`)) {
@@ -1088,6 +1418,7 @@ function TeachersPage({ accessToken }: { accessToken: string }) {
         throw new Error(await response.text());
       }
       setTeachers((currentTeachers) => currentTeachers.filter((item) => item.id !== teacher.id));
+      setAbsenceTeacher((currentTeacher) => (currentTeacher?.id === teacher.id ? null : currentTeacher));
       setStatus(`Преподаватель ${teacher.name} удалён.`);
     } catch {
       setStatus("Не удалось удалить преподавателя.");
@@ -1109,43 +1440,45 @@ function TeachersPage({ accessToken }: { accessToken: string }) {
       </div>
 
       <div className="teachers-grid">
-        <form className="users-panel teachers-create" onSubmit={createTeacher}>
-          <div className="users-panel__title">Новый преподаватель</div>
-          <label className="field">
-            <span>Имя</span>
-            <input
-              disabled={busy !== null}
-              maxLength={200}
-              onChange={(event) => setTeacherName(event.target.value)}
-              placeholder="Иванова И.И."
-              value={teacherName}
-            />
-          </label>
-          <label className="field">
-            <span>ID</span>
-            <input
-              disabled={busy !== null}
-              maxLength={100}
-              onChange={(event) => setTeacherId(event.target.value)}
-              placeholder="необязательно"
-              value={teacherId}
-            />
-          </label>
-          <label className="field">
-            <span>Должность</span>
-            <input
-              disabled={busy !== null}
-              maxLength={200}
-              onChange={(event) => setTeacherPost(event.target.value)}
-              placeholder="преподаватель"
-              value={teacherPost}
-            />
-          </label>
-          <button className="import-button import-button--primary" disabled={busy !== null} type="submit">
-            {busy === "create" ? "Добавляем..." : "Добавить"}
-          </button>
-          <div className="import-status">{status}</div>
-        </form>
+        <div className="teachers-side">
+          <form className="users-panel teachers-create" onSubmit={createTeacher}>
+            <div className="users-panel__title">Новый преподаватель</div>
+            <label className="field">
+              <span>Имя</span>
+              <input
+                disabled={busy !== null}
+                maxLength={200}
+                onChange={(event) => setTeacherName(event.target.value)}
+                placeholder="Иванова И.И."
+                value={teacherName}
+              />
+            </label>
+            <label className="field">
+              <span>ID</span>
+              <input
+                disabled={busy !== null}
+                maxLength={100}
+                onChange={(event) => setTeacherId(event.target.value)}
+                placeholder="необязательно"
+                value={teacherId}
+              />
+            </label>
+            <label className="field">
+              <span>Должность</span>
+              <input
+                disabled={busy !== null}
+                maxLength={200}
+                onChange={(event) => setTeacherPost(event.target.value)}
+                placeholder="преподаватель"
+                value={teacherPost}
+              />
+            </label>
+            <button className="import-button import-button--primary" disabled={busy !== null} type="submit">
+              {busy === "create" ? "Добавляем..." : "Добавить"}
+            </button>
+            <div className="import-status">{status}</div>
+          </form>
+        </div>
 
         <div className="teachers-list">
           {busy === "load" ? (
@@ -1161,18 +1494,46 @@ function TeachersPage({ accessToken }: { accessToken: string }) {
                       {teacher.post ? ` · ${teacher.post}` : ""}
                     </span>
                     <span>{teacher.lesson_count} занятий</span>
+                    {teacher.absences.length > 0 ? (
+                      <div className="teachers-absence-list">
+                        {teacher.absences.map((absence) => (
+                          <div className="teachers-absence" key={absence.id}>
+                            <span>{formatAbsence(absence)}</span>
+                            <button
+                              aria-label={`Удалить отсутствие ${teacher.name}`}
+                              className="users-row__action"
+                              disabled={busy !== null}
+                              onClick={() => deleteAbsence(teacher, absence)}
+                              type="button"
+                            >
+                              <Trash2 aria-hidden="true" size={14} strokeWidth={2} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                  <button
-                    aria-label={`Удалить преподавателя ${teacher.name}`}
-                    className="users-row__action rooms-row__delete"
-                    disabled={busy !== null}
-                    onClick={() => deleteTeacher(teacher)}
-                    title="Удалить"
-                    type="button"
-                  >
-                    <Trash2 aria-hidden="true" size={15} strokeWidth={2} />
-                    <span>Удалить</span>
-                  </button>
+                  <div className="teachers-row-actions">
+                    <button
+                      className="users-row__action"
+                      disabled={busy !== null}
+                      onClick={() => openAbsenceDialog(teacher)}
+                      type="button"
+                    >
+                      Отсутствует
+                    </button>
+                    <button
+                      aria-label={`Удалить преподавателя ${teacher.name}`}
+                      className="users-row__action rooms-row__delete"
+                      disabled={busy !== null}
+                      onClick={() => deleteTeacher(teacher)}
+                      title="Удалить"
+                      type="button"
+                    >
+                      <Trash2 aria-hidden="true" size={15} strokeWidth={2} />
+                      <span>Удалить</span>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1181,6 +1542,83 @@ function TeachersPage({ accessToken }: { accessToken: string }) {
           )}
         </div>
       </div>
+
+      {absenceTeacher ? (
+        <div className="teachers-modal" role="dialog" aria-modal="true" aria-labelledby="teacher-absence-title">
+          <button
+            aria-label="Закрыть меню отсутствия"
+            className="teachers-modal__backdrop"
+            disabled={busy === "absence"}
+            onClick={() => setAbsenceTeacher(null)}
+            type="button"
+          />
+          <form className="teachers-absence-dialog" onSubmit={createAbsence}>
+            <div className="schedule-edit__section-head">
+              <span>Отсутствие</span>
+            </div>
+            <div className="teachers-absence-dialog__title" id="teacher-absence-title">
+              {absenceTeacher.name}
+            </div>
+            <label className="field">
+              <span>Дата</span>
+              <input
+                disabled={busy !== null}
+                onChange={(event) => setAbsenceDate(event.target.value)}
+                type="date"
+                value={absenceDate}
+              />
+            </label>
+            <div className="teachers-slot-picker">
+              <div className="teachers-slot-picker__head">
+                <div className="teachers-slot-picker__label">Занятия</div>
+                <button
+                  className="teachers-select-all"
+                  disabled={busy !== null || absenceSlots.length === lessonSlots.length}
+                  onClick={selectAllAbsenceSlots}
+                  type="button"
+                >
+                  Выбрать все
+                </button>
+              </div>
+              <div className="teachers-slot-picker__buttons">
+                {lessonSlots.map((slot) => {
+                  const selected = absenceSlots.includes(slot);
+                  return (
+                    <button
+                      aria-pressed={selected}
+                      className={selected ? "teachers-slot-button teachers-slot-button--active" : "teachers-slot-button"}
+                      disabled={busy !== null}
+                      key={slot}
+                      onClick={() => toggleAbsenceSlot(slot)}
+                      type="button"
+                    >
+                      {slot}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <label className="field">
+              <span>Причина</span>
+              <input
+                disabled={busy !== null}
+                maxLength={300}
+                onChange={(event) => setAbsenceReason(event.target.value)}
+                placeholder="необязательно"
+                value={absenceReason}
+              />
+            </label>
+            <div className="schedule-edit__actions">
+              <button className="users-row__action" disabled={busy === "absence"} onClick={() => setAbsenceTeacher(null)} type="button">
+                Отмена
+              </button>
+              <button className="import-button import-button--primary" disabled={busy !== null} type="submit">
+                {busy === "absence" ? "Сохраняем..." : "Отметить"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1420,6 +1858,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
   const [selectedDate, setSelectedDate] = useState(today);
   const [selectedSlot, setSelectedSlot] = useState(1);
   const [rows, setRows] = useState<ScheduleSlotRow[]>([]);
+  const [availableTeachers, setAvailableTeachers] = useState<TeacherRecord[]>([]);
   const [editorState, setEditorState] = useState<ScheduleEditorState | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
   const [editSubject, setEditSubject] = useState("");
@@ -1468,7 +1907,44 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
     };
   }, [accessToken, selectedDate, selectedSlot]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadAvailableTeachers = async () => {
+      try {
+        const response = await fetch(
+          `${apiBaseUrl}/teachers/available?date=${encodeURIComponent(selectedDate)}&time_slot=${selectedSlot}`,
+          {
+            headers: buildAuthHeaders(accessToken),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const payload = (await response.json()) as TeacherRecord[];
+        if (!cancelled) {
+          setAvailableTeachers(payload);
+        }
+      } catch {
+        if (!cancelled) {
+          setAvailableTeachers([]);
+        }
+      }
+    };
+
+    void loadAvailableTeachers();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, selectedDate, selectedSlot]);
+
   const groupedRows = useMemo(() => groupScheduleRows(rows), [rows]);
+  const selectedTeacher = useMemo(() => {
+    const teacherName = editTeacherName.trim();
+    if (!teacherName) {
+      return null;
+    }
+    return availableTeachers.find((teacher) => teacher.name === teacherName) ?? null;
+  }, [availableTeachers, editTeacherName]);
 
   useEffect(() => {
     if (!editorState) {
@@ -1515,6 +1991,10 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
       setStatus("Введите предмет.");
       return;
     }
+    if (editTeacherName.trim() && !selectedTeacher) {
+      setStatus("Выберите доступного преподавателя.");
+      return;
+    }
 
     setSavingLesson(true);
     try {
@@ -1530,6 +2010,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
                 group_name: editGroupName.trim(),
                 subject: editSubject.trim(),
                 teacher_name: editTeacherName.trim(),
+                teacher_id: selectedTeacher?.teacher_id ?? null,
               }),
             })
           : await fetch(`${apiBaseUrl}/schedule/lessons`, {
@@ -1545,6 +2026,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
                 slot: selectedSlot,
                 subject: editSubject.trim(),
                 teacherName: editTeacherName.trim(),
+                teacherId: selectedTeacher?.teacher_id ?? null,
                 weekNumber: inferWeekNumber(rows, selectedDate),
               })),
             });
@@ -1683,7 +2165,17 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
                 </label>
                 <label className="field">
                   <span>Преподаватель</span>
-                  <input disabled={savingLesson} onChange={(event) => setEditTeacherName(event.target.value)} value={editTeacherName} />
+                  <input
+                    disabled={savingLesson}
+                    list="available-teachers"
+                    onChange={(event) => setEditTeacherName(event.target.value)}
+                    value={editTeacherName}
+                  />
+                  <datalist id="available-teachers">
+                    {availableTeachers.map((teacher) => (
+                      <option key={teacher.id} value={teacher.name} />
+                    ))}
+                  </datalist>
                 </label>
               </div>
             </section>
@@ -1835,6 +2327,7 @@ function buildLessonCreatePayload({
   roomName,
   slot,
   subject,
+  teacherId,
   teacherName,
   weekNumber,
 }: {
@@ -1843,6 +2336,7 @@ function buildLessonCreatePayload({
   roomName: string;
   slot: number;
   subject: string;
+  teacherId: string | null;
   teacherName: string;
   weekNumber: number;
 }) {
@@ -1853,7 +2347,7 @@ function buildLessonCreatePayload({
     faculty: "",
     subject,
     teacher_name: teacherName || null,
-    teacher_id: null,
+    teacher_id: teacherId,
     teacher_post: "",
     room_name: roomName,
     date,
@@ -2039,6 +2533,48 @@ function formatPlainDate(value: string) {
     month: "2-digit",
     year: "numeric",
   }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatAbsence(absence: TeacherAbsenceRecord) {
+  let scope = "весь день";
+  if (!absence.all_day && absence.time_slot_start !== null && absence.time_slot_end !== null) {
+    scope =
+      absence.time_slot_start === absence.time_slot_end
+        ? `${absence.time_slot_start} пара`
+        : `${absence.time_slot_start}-${absence.time_slot_end} пары`;
+  }
+  return `${formatPlainDate(absence.date)} · ${scope}${absence.reason ? ` · ${absence.reason}` : ""}`;
+}
+
+function buildProblemFilterOptions(problems: ScheduleProblem[]) {
+  const counts = new Map<string, number>();
+  for (const problem of problems) {
+    counts.set(problem.code, (counts.get(problem.code) ?? 0) + 1);
+  }
+
+  const knownOptions = defaultProblemFilterCodes.map((code) => ({
+    code,
+    count: counts.get(code) ?? 0,
+    label: problemFilterLabels[code] ?? code,
+  }));
+  const unknownOptions = Array.from(counts.entries())
+    .filter(([code]) => !defaultProblemFilterCodes.includes(code))
+    .map(([code, count]) => ({
+      code,
+      count,
+      label: problemFilterLabels[code] ?? code,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, "ru"));
+
+  return [
+    {
+      code: "all",
+      count: problems.length,
+      label: problemFilterLabels.all,
+    },
+    ...knownOptions,
+    ...unknownOptions,
+  ];
 }
 
 function formatProblemMeta(problem: ScheduleProblem) {

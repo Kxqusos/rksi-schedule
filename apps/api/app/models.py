@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -62,12 +62,27 @@ class Teacher(Base):
     post: Mapped[str] = mapped_column(String(200), nullable=False, default="")
 
 
+class TeacherAbsence(Base):
+    __tablename__ = "teacher_absences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id"), nullable=False)
+    absence_date: Mapped[date] = mapped_column(Date, nullable=False)
+    all_day: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    time_slot_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    time_slot_end: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class Room(Base):
     __tablename__ = "rooms"
     __table_args__ = (UniqueConstraint("source_name", name="uq_rooms_source_name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_excluded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    exclusion_reason: Mapped[str] = mapped_column(String(300), nullable=False, default="")
 
 
 class Subject(Base):

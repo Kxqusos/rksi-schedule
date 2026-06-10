@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models import AuditLog, Group, Lesson, Room, Subject, Teacher
 from app.schemas.schedule_edit import (
     LessonCreateRequest,
     LessonResponse,
     LessonUpdateRequest,
+    PublicScheduleDayResponse,
+    PublicScheduleWeekResponse,
     ScheduleProblemResponse,
     ScheduleSlotRoomResponse,
 )
 from app.services.auth.permissions import Actor
+from app.services.teachers import teacher_absence_for_slot
 
 
 MAX_GROUP_WEEK_LESSONS = 18
@@ -160,7 +164,7 @@ def delete_lesson(session, lesson_id: int, actor: Actor) -> None:
 
 
 def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleSlotRoomResponse]:
-    rooms = session.scalars(select(Room).order_by(Room.source_name)).all()
+    rooms = session.scalars(select(Room).where(Room.is_excluded.is_(False)).order_by(Room.source_name)).all()
     lessons = session.scalars(
         select(Lesson)
         .join(Group, Group.id == Lesson.group_id)
@@ -189,15 +193,60 @@ def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleS
         )
         for room in rooms
     ]
-    for lesson in unplaced_lessons:
+    visible_room_names = {room.source_name for room in rooms}
+    hidden_room_lessons = [
+        lesson
+        for room_name, room_lessons in lessons_by_room.items()
+        if room_name not in visible_room_names
+        for lesson in room_lessons
+    ]
+    for lesson in [*unplaced_lessons, *hidden_room_lessons]:
         rows.append(
             ScheduleSlotRoomResponse(
-                room_name="Без кабинета",
-                building="Без корпуса",
+                room_name=lesson.room_name or "Без кабинета",
+                building=_room_building(lesson.room_name or ""),
                 lesson=lesson,
             )
         )
     return rows
+
+
+def get_latest_public_week(session) -> PublicScheduleWeekResponse:
+    latest_date = session.scalar(select(func.max(Lesson.lesson_date)))
+    if latest_date is None:
+        return PublicScheduleWeekResponse()
+
+    week_start = latest_date - timedelta(days=latest_date.weekday())
+    week_end = week_start + timedelta(days=6)
+    latest_week_number = session.scalar(
+        select(Lesson.week_number)
+        .where(Lesson.lesson_date == latest_date)
+        .order_by(Lesson.week_number.desc())
+        .limit(1)
+    )
+    lessons = session.scalars(
+        select(Lesson)
+        .where(Lesson.lesson_date >= week_start, Lesson.lesson_date <= week_end)
+        .order_by(Lesson.lesson_date, Lesson.time_slot, Lesson.subgroup)
+    ).all()
+
+    lessons_by_date = {week_start + timedelta(days=offset): [] for offset in range(7)}
+    for lesson in lessons:
+        lessons_by_date.setdefault(lesson.lesson_date, []).append(_lesson_response(session, lesson))
+
+    return PublicScheduleWeekResponse(
+        week_start=week_start,
+        week_end=week_end,
+        week_number=latest_week_number,
+        days=[
+            PublicScheduleDayResponse(
+                date=day_date,
+                weekday=index + 1,
+                lessons=lessons_by_date.get(day_date, []),
+            )
+            for index, day_date in enumerate(week_start + timedelta(days=offset) for offset in range(7))
+        ],
+    )
 
 
 def list_schedule_problems(session) -> list[ScheduleProblemResponse]:
@@ -219,6 +268,8 @@ def list_schedule_problems(session) -> list[ScheduleProblemResponse]:
 
     problems.extend(_double_booked_teacher_warnings(session))
     problems.extend(_double_booked_room_warnings(session))
+    problems.extend(_absent_teacher_errors(session))
+    problems.extend(_excluded_room_errors(session))
     return sorted(
         problems,
         key=lambda problem: (
@@ -260,6 +311,19 @@ def _ensure_no_conflicts(
     if group_conflict is not None:
         raise ConflictError("group already has a lesson in this slot")
 
+    if room_id is not None:
+        room = session.get(Room, room_id)
+        if room is not None and room.is_excluded:
+            raise ConflictError("room is excluded from schedule")
+
+    if teacher_id is not None and teacher_absence_for_slot(
+        session,
+        teacher_id=teacher_id,
+        lesson_date=lesson_date,
+        time_slot=time_slot,
+    ):
+        raise ConflictError("teacher is absent in this slot")
+
 
 def _first_conflict(session, *conditions, exclude_lesson_id: int | None):
     query = select(Lesson).where(*conditions)
@@ -290,6 +354,8 @@ def _blocking_detail(problem: ScheduleProblemResponse) -> str:
         "group_day_minimum_not_met": "group day lesson minimum not met",
         "group_day_window": "group day schedule has a window",
         "group_slot_multiple_teachers": "group has multiple teachers in one slot",
+        "absent_teacher_scheduled": "teacher is absent in this slot",
+        "excluded_room_scheduled": "room is excluded from schedule",
     }
     return details.get(problem.code, problem.message)
 
@@ -298,10 +364,11 @@ def _group_week_errors(session, group_id: int, week_number: int) -> list[Schedul
     lessons = session.scalars(
         select(Lesson).where(Lesson.group_id == group_id, Lesson.week_number == week_number).order_by(Lesson.lesson_date, Lesson.time_slot)
     ).all()
-    if len(lessons) <= MAX_GROUP_WEEK_LESSONS:
+    counted_lessons = [lesson for lesson in lessons if not _is_additional_lesson(session, lesson)]
+    actual_count = _weekly_pair_count(counted_lessons)
+    if actual_count <= MAX_GROUP_WEEK_LESSONS:
         return []
     group = session.get(Group, group_id)
-    actual_count = len(lessons)
     overage = actual_count - MAX_GROUP_WEEK_LESSONS
     return [
         ScheduleProblemResponse(
@@ -315,7 +382,7 @@ def _group_week_errors(session, group_id: int, week_number: int) -> list[Schedul
             ),
             week_number=week_number,
             group_name=group.source_name if group else None,
-            lesson_ids=[lesson.id for lesson in lessons],
+            lesson_ids=[lesson.id for lesson in counted_lessons],
         )
     ]
 
@@ -330,9 +397,9 @@ def _group_day_errors(session, group_id: int, lesson_date) -> list[ScheduleProbl
     group = session.get(Group, group_id)
     group_name = group.source_name if group else None
     lesson_ids = [lesson.id for lesson in lessons]
+    actual_count = _daily_pair_count(lessons)
     problems: list[ScheduleProblemResponse] = []
-    if len(lessons) > MAX_GROUP_DAY_LESSONS:
-        actual_count = len(lessons)
+    if actual_count > MAX_GROUP_DAY_LESSONS:
         overage = actual_count - MAX_GROUP_DAY_LESSONS
         problems.append(
             ScheduleProblemResponse(
@@ -349,7 +416,7 @@ def _group_day_errors(session, group_id: int, lesson_date) -> list[ScheduleProbl
                 lesson_ids=lesson_ids,
             )
         )
-    if len(lessons) < MIN_GROUP_DAY_LESSONS:
+    if actual_count < MIN_GROUP_DAY_LESSONS:
         problems.append(
             ScheduleProblemResponse(
                 severity="error",
@@ -377,6 +444,31 @@ def _group_day_errors(session, group_id: int, lesson_date) -> list[ScheduleProbl
                 )
             )
     return problems
+
+
+def _daily_pair_count(lessons: list[Lesson]) -> int:
+    return len({lesson.time_slot for lesson in lessons})
+
+
+def _weekly_pair_count(lessons: list[Lesson]) -> int:
+    return len({(lesson.lesson_date, lesson.time_slot) for lesson in lessons})
+
+
+def _is_additional_lesson(session, lesson: Lesson) -> bool:
+    subject = session.get(Subject, lesson.subject_id)
+    raw_payload = lesson.raw_payload if isinstance(lesson.raw_payload, dict) else {}
+    labels = [
+        lesson.lesson_type,
+        raw_payload.get("type", ""),
+        raw_payload.get("subject", ""),
+        subject.source_name if subject else "",
+    ]
+    return any(_is_additional_lesson_label(str(label)) for label in labels if label is not None)
+
+
+def _is_additional_lesson_label(label: str) -> bool:
+    normalized = "".join(character for character in label.casefold() if character.isalnum())
+    return normalized.startswith("доп") and "занят" in normalized
 
 
 def _group_slot_teacher_errors(session, group_id: int, lesson_date) -> list[ScheduleProblemResponse]:
@@ -431,6 +523,70 @@ def _warnings_for_lesson(session, lesson: Lesson) -> list[ScheduleProblemRespons
         if lesson.id in warning.lesson_ids:
             lesson_warnings.append(warning)
     return lesson_warnings
+
+
+def _absent_teacher_errors(session) -> list[ScheduleProblemResponse]:
+    lessons = session.scalars(
+        select(Lesson).where(Lesson.teacher_id.is_not(None)).order_by(Lesson.lesson_date, Lesson.time_slot)
+    ).all()
+    problems: list[ScheduleProblemResponse] = []
+    for lesson in lessons:
+        if lesson.teacher_id is None:
+            continue
+        absence = teacher_absence_for_slot(
+            session,
+            teacher_id=lesson.teacher_id,
+            lesson_date=lesson.lesson_date,
+            time_slot=lesson.time_slot,
+        )
+        if absence is None:
+            continue
+        teacher = session.get(Teacher, lesson.teacher_id)
+        reason_suffix = f" Причина: {absence.reason}." if absence.reason else ""
+        problems.append(
+            ScheduleProblemResponse(
+                severity="error",
+                code="absent_teacher_scheduled",
+                message=(
+                    f"Преподаватель {teacher.source_name if teacher else ''} отсутствует, "
+                    f"но стоит в расписании на {lesson.time_slot} пару.{reason_suffix}"
+                ),
+                date=lesson.lesson_date,
+                time_slot=lesson.time_slot,
+                teacher_name=teacher.source_name if teacher else None,
+                lesson_ids=[lesson.id],
+            )
+        )
+    return problems
+
+
+def _excluded_room_errors(session) -> list[ScheduleProblemResponse]:
+    lessons = session.scalars(
+        select(Lesson).where(Lesson.room_id.is_not(None)).order_by(Lesson.lesson_date, Lesson.time_slot)
+    ).all()
+    problems: list[ScheduleProblemResponse] = []
+    for lesson in lessons:
+        if lesson.room_id is None:
+            continue
+        room = session.get(Room, lesson.room_id)
+        if room is None or not room.is_excluded:
+            continue
+        reason_suffix = f" Причина: {room.exclusion_reason}." if room.exclusion_reason else ""
+        problems.append(
+            ScheduleProblemResponse(
+                severity="error",
+                code="excluded_room_scheduled",
+                message=(
+                    f"Кабинет {room.source_name} исключён из расписания, "
+                    f"но стоит на {lesson.time_slot} пару.{reason_suffix}"
+                ),
+                date=lesson.lesson_date,
+                time_slot=lesson.time_slot,
+                room_name=room.source_name,
+                lesson_ids=[lesson.id],
+            )
+        )
+    return problems
 
 
 def _double_booked_teacher_warnings(session, *, lesson_date=None, time_slot: int | None = None) -> list[ScheduleProblemResponse]:

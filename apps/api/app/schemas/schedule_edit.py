@@ -77,3 +77,16 @@ class ScheduleSlotRoomResponse(BaseModel):
     room_name: str
     building: str
     lesson: LessonResponse | None
+
+
+class PublicScheduleDayResponse(BaseModel):
+    date: Date
+    weekday: int
+    lessons: list[LessonResponse] = Field(default_factory=list)
+
+
+class PublicScheduleWeekResponse(BaseModel):
+    week_start: Date | None = None
+    week_end: Date | None = None
+    week_number: int | None = None
+    days: list[PublicScheduleDayResponse] = Field(default_factory=list)

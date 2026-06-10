@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.main import app
-from app.models import Group, Lesson, Room, Subject, Teacher
+from app.models import Group, Lesson, Room, ScheduleImport, Subject, Teacher
 from app.services.bootstrap import bootstrap_admin
 from app.services.import_schedule import import_schedule_from_json
 from conftest import migrate_database
@@ -89,6 +89,36 @@ def test_request_without_role_is_rejected(tmp_path):
     )
 
     assert response.status_code == 401
+
+
+def test_public_latest_week_returns_latest_calendar_week_without_auth(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'public_week.db'}"
+    migrate_database(database_url)
+    _seed_public_week_lessons(database_url)
+    app.state.database_url = database_url
+    client = TestClient(app)
+
+    response = client.get("/schedule/public/latest-week")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["week_start"] == "2026-03-02"
+    assert body["week_end"] == "2026-03-08"
+    assert body["week_number"] == 9
+    assert [day["date"] for day in body["days"]] == [
+        "2026-03-02",
+        "2026-03-03",
+        "2026-03-04",
+        "2026-03-05",
+        "2026-03-06",
+        "2026-03-07",
+        "2026-03-08",
+    ]
+    latest_lessons = [lesson for day in body["days"] for lesson in day["lessons"]]
+    assert len(latest_lessons) == 1
+    assert latest_lessons[0]["group_name"] == "PUBLIC-LATEST"
+    assert latest_lessons[0]["subject"] == "Latest subject"
+    assert latest_lessons[0]["teacher_name"] == "Latest Teacher"
 
 
 def test_operator_can_list_lessons_by_date_and_slot(tmp_path, monkeypatch):
@@ -230,6 +260,99 @@ def test_teacher_and_room_conflicts_are_returned_as_warnings(tmp_path, monkeypat
     assert "room_double_booked" in warning_codes
 
 
+def test_absent_teacher_cannot_be_assigned_to_manual_lesson(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'absent_teacher_block.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    client = TestClient(app)
+    _seed_group_lessons(database_url, group_name="ABSENT-BLOCK", slots=(2, 3), room_prefix="absent-block")
+
+    teacher = _teacher_by_source_id(database_url, "ABSENT-BLOCK teacher")
+    absence_response = client.post(
+        f"/teachers/{teacher['id']}/absences",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={
+            "date": "2026-02-23",
+            "all_day": False,
+            "time_slot_start": 1,
+            "time_slot_end": 1,
+            "reason": "Командировка",
+        },
+    )
+    assert absence_response.status_code == 201
+
+    response = client.post(
+        "/schedule/lessons",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={
+            "group_name": "ABSENT-BLOCK",
+            "course": 0,
+            "faculty": "",
+            "subject": "Замена",
+            "teacher_name": "ABSENT-BLOCK teacher",
+            "teacher_id": "ABSENT-BLOCK teacher",
+            "teacher_post": "",
+            "room_name": "absent-block-1",
+            "date": "2026-02-23",
+            "time_start": "08:00:00",
+            "time_end": "09:30:00",
+            "weekday": 1,
+            "week_number": 7,
+            "time_slot": 1,
+            "subgroup": 0,
+            "lesson_type": "",
+        },
+    )
+
+    assert response.status_code == 409
+    assert "teacher is absent in this slot" in response.json()["detail"]
+
+
+def test_excluded_room_cannot_be_assigned_to_manual_lesson(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'excluded_room_block.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    client = TestClient(app)
+    rooms = client.get("/rooms", headers={"Authorization": f"Bearer {operator_token}"}).json()
+    room = next(room for room in rooms if room["name"] == "103/1")
+    exclude_response = client.post(
+        f"/rooms/{room['id']}/exclusion",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={"reason": "Ремонт"},
+    )
+    assert exclude_response.status_code == 200
+
+    response = client.post(
+        "/schedule/lessons",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={
+            "group_name": "ROOM-BLOCK",
+            "course": 0,
+            "faculty": "",
+            "subject": "Новая пара",
+            "teacher_name": "Room Block Teacher",
+            "teacher_id": "room-block-teacher",
+            "teacher_post": "",
+            "room_name": "103/1",
+            "date": "2026-02-23",
+            "time_start": "08:00:00",
+            "time_end": "09:30:00",
+            "weekday": 1,
+            "week_number": 7,
+            "time_slot": 1,
+            "subgroup": 0,
+            "lesson_type": "",
+        },
+    )
+
+    assert response.status_code == 409
+    assert "room is excluded from schedule" in response.json()["detail"]
+
+
 def test_group_day_maximum_is_blocked(tmp_path, monkeypatch):
     database_url = f"sqlite:///{tmp_path / 'day_max.db'}"
     migrate_database(database_url)
@@ -298,6 +421,50 @@ def test_linter_limit_messages_include_actual_count_and_overage(tmp_path, monkey
     assert "превышение на 1 пару" in week_problem["message"]
 
 
+def test_subgroup_lessons_count_as_one_pair_for_group_limits(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'subgroup_pair_count.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    client = TestClient(app)
+    _seed_subgroup_day_limit_lessons(database_url)
+    _seed_subgroup_week_limit_lessons(database_url)
+
+    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+
+    assert response.status_code == 200
+    problems = response.json()
+    assert not any(
+        problem["code"] == "group_day_limit_exceeded" and problem["group_name"] == "SUBGROUP-DAY"
+        for problem in problems
+    )
+    assert not any(
+        problem["code"] == "group_week_limit_exceeded" and problem["group_name"] == "SUBGROUP-WEEK"
+        for problem in problems
+    )
+
+
+def test_additional_lessons_do_not_count_toward_group_week_limit(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'additional_week_count.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    client = TestClient(app)
+    _seed_group_week_lessons(database_url, group_name="ADDITIONAL-WEEK", lesson_count=18)
+    _seed_additional_lesson(database_url, group_name="ADDITIONAL-WEEK")
+
+    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+
+    assert response.status_code == 200
+    problems = response.json()
+    assert not any(
+        problem["code"] == "group_week_limit_exceeded" and problem["group_name"] == "ADDITIONAL-WEEK"
+        for problem in problems
+    )
+
+
 def test_group_window_is_blocked(tmp_path, monkeypatch):
     database_url = f"sqlite:///{tmp_path / 'window.db'}"
     migrate_database(database_url)
@@ -348,6 +515,62 @@ def test_schedule_problems_linter_lists_warnings(tmp_path, monkeypatch):
     problems = response.json()
     assert any(problem["severity"] == "warning" for problem in problems)
     assert any(problem["code"] == "teacher_double_booked" for problem in problems)
+
+
+def test_schedule_problems_linter_lists_absent_teacher_lessons(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'absent_teacher_problem.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    client = TestClient(app)
+    _seed_group_lessons(database_url, group_name="ABSENT-LINT", slots=(1, 2), room_prefix="absent-lint")
+
+    teacher = _teacher_by_source_id(database_url, "ABSENT-LINT teacher")
+    absence_response = client.post(
+        f"/teachers/{teacher['id']}/absences",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={"date": "2026-02-23", "all_day": True, "reason": "Отпуск"},
+    )
+    assert absence_response.status_code == 201
+
+    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+
+    assert response.status_code == 200
+    problems = response.json()
+    absent_problem = next(problem for problem in problems if problem["code"] == "absent_teacher_scheduled")
+    assert absent_problem["severity"] == "error"
+    assert absent_problem["teacher_name"] == "ABSENT-LINT teacher"
+    assert "отсутствует" in absent_problem["message"]
+    assert "Отпуск" in absent_problem["message"]
+
+
+def test_schedule_problems_linter_lists_excluded_room_lessons(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'excluded_room_problem.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    client = TestClient(app)
+    rooms = client.get("/rooms", headers={"Authorization": f"Bearer {operator_token}"}).json()
+    occupied_room = next(room for room in rooms if room["lesson_count"] > 0)
+
+    exclude_response = client.post(
+        f"/rooms/{occupied_room['id']}/exclusion",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={"reason": "Ремонт"},
+    )
+    assert exclude_response.status_code == 200
+
+    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+
+    assert response.status_code == 200
+    problems = response.json()
+    excluded_problem = next(problem for problem in problems if problem["code"] == "excluded_room_scheduled")
+    assert excluded_problem["severity"] == "error"
+    assert excluded_problem["room_name"] == occupied_room["name"]
+    assert "исключён" in excluded_problem["message"]
+    assert "Ремонт" in excluded_problem["message"]
 
 
 def test_foreign_language_split_subgroups_are_not_multiple_teacher_error(tmp_path, monkeypatch):
@@ -408,6 +631,95 @@ def _seed_group_lessons(database_url: str, *, group_name: str, slots: tuple[int,
                         raw_payload={},
                     )
                 )
+
+
+def _seed_public_week_lessons(database_url: str) -> None:
+    from app.db.session import build_session_factory
+
+    _engine, session_factory = build_session_factory(database_url)
+    with session_factory() as session:
+        with session.begin():
+            schedule_import = ScheduleImport(
+                source_path="test",
+                timetable_count=0,
+                group_count=0,
+                lesson_count=0,
+                empty_day_count=0,
+                raw_payload={},
+            )
+            old_group = Group(source_name="PUBLIC-OLD", course=0, faculty="")
+            latest_group = Group(source_name="PUBLIC-LATEST", course=0, faculty="")
+            old_subject = Subject(source_name="Old subject")
+            latest_subject = Subject(source_name="Latest subject")
+            old_teacher = Teacher(source_teacher_id="public-old", source_name="Old Teacher", post="")
+            latest_teacher = Teacher(source_teacher_id="public-latest", source_name="Latest Teacher", post="")
+            old_room = Room(source_name="100/1")
+            latest_room = Room(source_name="200/1")
+            session.add_all(
+                [
+                    schedule_import,
+                    old_group,
+                    latest_group,
+                    old_subject,
+                    latest_subject,
+                    old_teacher,
+                    latest_teacher,
+                    old_room,
+                    latest_room,
+                ]
+            )
+            session.flush()
+            session.add_all(
+                [
+                    Lesson(
+                        source_lesson_id="public-old-lesson",
+                        schedule_import_id=schedule_import.id,
+                        group_id=old_group.id,
+                        subject_id=old_subject.id,
+                        teacher_id=old_teacher.id,
+                        room_id=old_room.id,
+                        lesson_date=date(2026, 2, 24),
+                        start_time=time(8, 30),
+                        end_time=time(10, 0),
+                        weekday=2,
+                        week_number=8,
+                        time_slot=1,
+                        subgroup=0,
+                        lesson_type="",
+                        raw_payload={},
+                    ),
+                    Lesson(
+                        source_lesson_id="public-latest-lesson",
+                        schedule_import_id=schedule_import.id,
+                        group_id=latest_group.id,
+                        subject_id=latest_subject.id,
+                        teacher_id=latest_teacher.id,
+                        room_id=latest_room.id,
+                        lesson_date=date(2026, 3, 4),
+                        start_time=time(10, 10),
+                        end_time=time(11, 40),
+                        weekday=3,
+                        week_number=9,
+                        time_slot=2,
+                        subgroup=0,
+                        lesson_type="",
+                        raw_payload={},
+                    ),
+                ]
+            )
+
+
+def _teacher_by_source_id(database_url: str, source_teacher_id: str) -> dict:
+    conn = sqlite3.connect(database_url.removeprefix("sqlite:///"))
+    try:
+        row = conn.execute(
+            "select id, source_teacher_id, source_name from teachers where source_teacher_id = ?",
+            (source_teacher_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    return {"id": row[0], "teacher_id": row[1], "name": row[2]}
 
 
 def _seed_foreign_language_split(database_url: str) -> None:
@@ -488,6 +800,122 @@ def _seed_group_week_lessons(database_url: str, *, group_name: str, lesson_count
                         )
                     )
                     created += 1
+
+
+def _seed_subgroup_day_limit_lessons(database_url: str) -> None:
+    from app.db.session import build_session_factory
+
+    _engine, session_factory = build_session_factory(database_url)
+    with session_factory() as session:
+        with session.begin():
+            group = Group(source_name="SUBGROUP-DAY", course=0, faculty="")
+            subject = Subject(source_name="SUBGROUP-DAY subject")
+            teacher = Teacher(source_teacher_id="SUBGROUP-DAY teacher", source_name="SUBGROUP-DAY teacher", post="")
+            session.add_all([group, subject, teacher])
+            session.flush()
+            for index, (slot, subgroup) in enumerate(((1, 1), (1, 2), (2, 0), (3, 0), (4, 0)), start=1):
+                room = Room(source_name=f"SUBGROUP-DAY-{index}")
+                session.add(room)
+                session.flush()
+                session.add(
+                    Lesson(
+                        source_lesson_id=f"SUBGROUP-DAY:{index}",
+                        schedule_import_id=1,
+                        group_id=group.id,
+                        subject_id=subject.id,
+                        teacher_id=teacher.id,
+                        room_id=room.id,
+                        lesson_date=date(2026, 2, 23),
+                        start_time=time(8 + slot, 0),
+                        end_time=time(8 + slot, 30),
+                        weekday=1,
+                        week_number=7,
+                        time_slot=slot,
+                        subgroup=subgroup,
+                        lesson_type="",
+                        raw_payload={},
+                    )
+                )
+
+
+def _seed_subgroup_week_limit_lessons(database_url: str) -> None:
+    from app.db.session import build_session_factory
+
+    _engine, session_factory = build_session_factory(database_url)
+    with session_factory() as session:
+        with session.begin():
+            group = Group(source_name="SUBGROUP-WEEK", course=0, faculty="")
+            subject = Subject(source_name="SUBGROUP-WEEK subject")
+            teacher = Teacher(source_teacher_id="SUBGROUP-WEEK teacher", source_name="SUBGROUP-WEEK teacher", post="")
+            session.add_all([group, subject, teacher])
+            session.flush()
+            created = 0
+            for day_offset in range(5):
+                for slot in range(1, 5):
+                    if created >= 18:
+                        return
+                    subgroups = (1, 2) if created == 0 else (0,)
+                    for subgroup in subgroups:
+                        room = Room(source_name=f"SUBGROUP-WEEK-{day_offset}-{slot}-{subgroup}")
+                        session.add(room)
+                        session.flush()
+                        session.add(
+                            Lesson(
+                                source_lesson_id=f"SUBGROUP-WEEK:{day_offset}:{slot}:{subgroup}",
+                                schedule_import_id=1,
+                                group_id=group.id,
+                                subject_id=subject.id,
+                                teacher_id=teacher.id,
+                                room_id=room.id,
+                                lesson_date=date(2026, 2, 23 + day_offset),
+                                start_time=time(8 + slot, 0),
+                                end_time=time(8 + slot, 30),
+                                weekday=1 + day_offset,
+                                week_number=7,
+                                time_slot=slot,
+                                subgroup=subgroup,
+                                lesson_type="",
+                                raw_payload={},
+                            )
+                        )
+                    created += 1
+
+
+def _seed_additional_lesson(database_url: str, *, group_name: str) -> None:
+    from app.db.session import build_session_factory
+
+    _engine, session_factory = build_session_factory(database_url)
+    with session_factory() as session:
+        with session.begin():
+            group = session.scalar(select(Group).where(Group.source_name == group_name))
+            assert group is not None
+            subject = session.scalar(select(Subject).where(Subject.source_name == "Доп.занятие"))
+            if subject is None:
+                subject = Subject(source_name="Доп.занятие")
+                session.add(subject)
+            teacher = Teacher(source_teacher_id=f"{group_name} additional", source_name=f"{group_name} additional", post="")
+            room = Room(source_name=f"{group_name}-additional")
+            session.add_all([teacher, room])
+            session.flush()
+            session.add(
+                Lesson(
+                    source_lesson_id=f"{group_name}:additional",
+                    schedule_import_id=1,
+                    group_id=group.id,
+                    subject_id=subject.id,
+                    teacher_id=teacher.id,
+                    room_id=room.id,
+                    lesson_date=date(2026, 2, 27),
+                    start_time=time(13, 30),
+                    end_time=time(15, 0),
+                    weekday=5,
+                    week_number=7,
+                    time_slot=3,
+                    subgroup=0,
+                    lesson_type="",
+                    raw_payload={"subject": "Доп.занятие"},
+                )
+            )
 
 
 def _bootstrap_and_get_operator_token(database_url: str, monkeypatch) -> str:

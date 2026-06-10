@@ -71,6 +71,12 @@ def test_teacher_with_lessons_can_be_deleted_without_deleting_lessons(tmp_path, 
 
     teachers = client.get("/teachers", headers={"Authorization": f"Bearer {admin_token}"}).json()
     occupied_teacher = next(teacher for teacher in teachers if teacher["lesson_count"] > 0)
+    absence_response = client.post(
+        f"/teachers/{occupied_teacher['id']}/absences",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"date": "2026-02-23", "all_day": True, "reason": "Отпуск"},
+    )
+    assert absence_response.status_code == 201
 
     response = client.delete(
         f"/teachers/{occupied_teacher['id']}",
@@ -91,11 +97,16 @@ def test_teacher_with_lessons_can_be_deleted_without_deleting_lessons(tmp_path, 
             "select count(*) from lessons where teacher_id = ?",
             (occupied_teacher["id"],),
         ).fetchone()[0]
+        deleted_teacher_absence_count = conn.execute(
+            "select count(*) from teacher_absences where teacher_id = ?",
+            (occupied_teacher["id"],),
+        ).fetchone()[0]
     finally:
         conn.close()
 
     assert unassigned_count >= occupied_teacher["lesson_count"]
     assert deleted_teacher_lesson_count == 0
+    assert deleted_teacher_absence_count == 0
 
 
 def test_operator_can_manage_teachers(tmp_path, monkeypatch):
@@ -118,6 +129,64 @@ def test_operator_can_manage_teachers(tmp_path, monkeypatch):
 
     delete_response = client.delete(
         f"/teachers/{created['id']}",
+        headers={"Authorization": f"Bearer {operator_token}"},
+    )
+    assert delete_response.status_code == 204
+
+
+def test_operator_can_mark_teacher_absent_and_filter_available_teachers(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'teacher_absences.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    client = TestClient(app)
+
+    teachers = client.get("/teachers", headers={"Authorization": f"Bearer {operator_token}"}).json()
+    target_teacher = next(teacher for teacher in teachers if teacher["lesson_count"] > 0)
+
+    absence_response = client.post(
+        f"/teachers/{target_teacher['id']}/absences",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={
+            "date": "2026-02-23",
+            "all_day": False,
+            "time_slot_start": 1,
+            "time_slot_end": 2,
+            "reason": "Больничный",
+        },
+    )
+
+    assert absence_response.status_code == 201
+    absence = absence_response.json()
+    assert absence["date"] == "2026-02-23"
+    assert absence["time_slot_start"] == 1
+    assert absence["time_slot_end"] == 2
+    assert absence["reason"] == "Больничный"
+
+    list_response = client.get("/teachers", headers={"Authorization": f"Bearer {operator_token}"})
+    assert list_response.status_code == 200
+    listed_teacher = next(teacher for teacher in list_response.json() if teacher["id"] == target_teacher["id"])
+    assert listed_teacher["absences"][0]["id"] == absence["id"]
+
+    unavailable_response = client.get(
+        "/teachers/available",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        params={"date": "2026-02-23", "time_slot": 2},
+    )
+    assert unavailable_response.status_code == 200
+    assert all(teacher["id"] != target_teacher["id"] for teacher in unavailable_response.json())
+
+    available_response = client.get(
+        "/teachers/available",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        params={"date": "2026-02-23", "time_slot": 3},
+    )
+    assert available_response.status_code == 200
+    assert any(teacher["id"] == target_teacher["id"] for teacher in available_response.json())
+
+    delete_response = client.delete(
+        f"/teachers/{target_teacher['id']}/absences/{absence['id']}",
         headers={"Authorization": f"Bearer {operator_token}"},
     )
     assert delete_response.status_code == 204

@@ -32,6 +32,7 @@ def test_initial_migration_creates_schedule_import_tables(tmp_path):
         "rooms",
         "schedule_imports",
         "subjects",
+        "teacher_absences",
         "teachers",
         "users",
     }.issubset(tables)
