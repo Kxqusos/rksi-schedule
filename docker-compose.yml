@@ -57,7 +57,7 @@ services:
         - action: sync
           path: ./apps/api/app
           target: /workspace/apps/api/app
-        - action: sync
+        - action: sync+restart
           path: ./apps/api/alembic
           target: /workspace/apps/api/alembic
         - action: rebuild
