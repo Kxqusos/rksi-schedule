@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.core.config import get_database_url
 from app.db.session import build_session_factory
-from app.schemas.teacher import TeacherAbsenceCreateRequest, TeacherCreateRequest
+from app.schemas.teacher import TeacherAbsenceCreateRequest, TeacherAbsenceResponse, TeacherCreateRequest, TeacherResponse
 from app.services.auth.permissions import Actor, require_editor_actor
 from app.services.teachers import (
     DuplicateTeacherError,
@@ -24,7 +24,7 @@ from app.services.teachers import (
 router = APIRouter(prefix="/teachers", tags=["teachers"])
 
 
-@router.get("")
+@router.get("", response_model=list[TeacherResponse])
 def get_teachers(
     request: Request,
     actor: Annotated[Actor, Depends(require_editor_actor)],
@@ -35,7 +35,7 @@ def get_teachers(
         return [teacher.model_dump(mode="json") for teacher in list_teachers(session)]
 
 
-@router.get("/available")
+@router.get("/available", response_model=list[TeacherResponse])
 def get_available_teachers(
     request: Request,
     date: Date,
@@ -51,7 +51,7 @@ def get_available_teachers(
         ]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=TeacherResponse, status_code=status.HTTP_201_CREATED)
 def post_teacher(
     request: Request,
     payload: TeacherCreateRequest,
@@ -68,7 +68,7 @@ def post_teacher(
     return result.model_dump(mode="json")
 
 
-@router.post("/{teacher_id}/absences", status_code=status.HTTP_201_CREATED)
+@router.post("/{teacher_id}/absences", response_model=TeacherAbsenceResponse, status_code=status.HTTP_201_CREATED)
 def post_teacher_absence(
     request: Request,
     teacher_id: int,

@@ -1,0 +1,2247 @@
+openapi: 3.1.0
+info:
+  title: Schedule RKS API
+  version: 0.1.0
+paths:
+  "/auth/login":
+    post:
+      tags:
+      - auth
+      summary: Login
+      operationId: login_auth_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/LoginRequest"
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LoginResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/auth/me":
+    get:
+      tags:
+      - auth
+      summary: Me
+      operationId: me_auth_me_get
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/UserResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/groups":
+    get:
+      tags:
+      - groups
+      summary: Get Groups
+      operationId: get_groups_groups_get
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/GroupResponse"
+                title: Response Get Groups Groups Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/groups/{group_id}":
+    patch:
+      tags:
+      - groups
+      summary: Patch Group
+      operationId: patch_group_groups__group_id__patch
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Group Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/GroupUpdateRequest"
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GroupResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+    delete:
+      tags:
+      - groups
+      summary: Remove Group
+      operationId: remove_group_groups__group_id__delete
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Group Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/groups/{group_id}/homeroom-teacher":
+    patch:
+      tags:
+      - groups
+      summary: Patch Group Homeroom Teacher
+      operationId: patch_group_homeroom_teacher_groups__group_id__homeroom_teacher_patch
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Group Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/GroupHomeroomTeacherRequest"
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GroupResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/rooms":
+    get:
+      tags:
+      - rooms
+      summary: Get Rooms
+      operationId: get_rooms_rooms_get
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/RoomResponse"
+                title: Response Get Rooms Rooms Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+    post:
+      tags:
+      - rooms
+      summary: Post Room
+      operationId: post_room_rooms_post
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RoomCreateRequest"
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RoomResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/rooms/{room_id}/exclusion":
+    post:
+      tags:
+      - rooms
+      summary: Post Room Exclusion
+      operationId: post_room_exclusion_rooms__room_id__exclusion_post
+      parameters:
+      - name: room_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Room Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RoomExclusionRequest"
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RoomResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+    delete:
+      tags:
+      - rooms
+      summary: Delete Room Exclusion
+      operationId: delete_room_exclusion_rooms__room_id__exclusion_delete
+      parameters:
+      - name: room_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Room Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RoomResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/rooms/{room_id}":
+    delete:
+      tags:
+      - rooms
+      summary: Remove Room
+      operationId: remove_room_rooms__room_id__delete
+      parameters:
+      - name: room_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Room Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/schedule/public/latest-week":
+    get:
+      tags:
+      - schedule
+      summary: Get Public Latest Week
+      operationId: get_public_latest_week_schedule_public_latest_week_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PublicScheduleWeekResponse"
+  "/schedule/lessons":
+    get:
+      tags:
+      - schedule
+      summary: Get Lessons
+      operationId: get_lessons_schedule_lessons_get
+      parameters:
+      - name: date
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+          title: Date
+      - name: time_slot
+        in: query
+        required: true
+        schema:
+          type: integer
+          title: Time Slot
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/ScheduleSlotRoomResponse"
+                title: Response Get Lessons Schedule Lessons Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+    post:
+      tags:
+      - schedule
+      summary: Create Lesson
+      operationId: create_lesson_schedule_lessons_post
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/LessonCreateRequest"
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LessonMutationResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/schedule/problems":
+    get:
+      tags:
+      - schedule
+      summary: Get Problems
+      operationId: get_problems_schedule_problems_get
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/ScheduleProblemResponse"
+                title: Response Get Problems Schedule Problems Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/schedule/lessons/{lesson_id}":
+    patch:
+      tags:
+      - schedule
+      summary: Update Lesson
+      operationId: update_lesson_schedule_lessons__lesson_id__patch
+      parameters:
+      - name: lesson_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Lesson Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/LessonUpdateRequest"
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LessonMutationResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+    delete:
+      tags:
+      - schedule
+      summary: Delete Lesson
+      operationId: delete_lesson_schedule_lessons__lesson_id__delete
+      parameters:
+      - name: lesson_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Lesson Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/teachers":
+    get:
+      tags:
+      - teachers
+      summary: Get Teachers
+      operationId: get_teachers_teachers_get
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/TeacherResponse"
+                title: Response Get Teachers Teachers Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+    post:
+      tags:
+      - teachers
+      summary: Post Teacher
+      operationId: post_teacher_teachers_post
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/TeacherCreateRequest"
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TeacherResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/teachers/available":
+    get:
+      tags:
+      - teachers
+      summary: Get Available Teachers
+      operationId: get_available_teachers_teachers_available_get
+      parameters:
+      - name: date
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+          title: Date
+      - name: time_slot
+        in: query
+        required: true
+        schema:
+          type: integer
+          title: Time Slot
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/TeacherResponse"
+                title: Response Get Available Teachers Teachers Available Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/teachers/{teacher_id}/absences":
+    post:
+      tags:
+      - teachers
+      summary: Post Teacher Absence
+      operationId: post_teacher_absence_teachers__teacher_id__absences_post
+      parameters:
+      - name: teacher_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Teacher Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/TeacherAbsenceCreateRequest"
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TeacherAbsenceResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/teachers/{teacher_id}/absences/{absence_id}":
+    delete:
+      tags:
+      - teachers
+      summary: Remove Teacher Absence
+      operationId: remove_teacher_absence_teachers__teacher_id__absences__absence_id__delete
+      parameters:
+      - name: teacher_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Teacher Id
+      - name: absence_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Absence Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/teachers/{teacher_id}":
+    delete:
+      tags:
+      - teachers
+      summary: Remove Teacher
+      operationId: remove_teacher_teachers__teacher_id__delete
+      parameters:
+      - name: teacher_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Teacher Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/time-profiles/day":
+    get:
+      tags:
+      - time-profiles
+      summary: Get Day Profiles
+      operationId: get_day_profiles_time_profiles_day_get
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/DayTimeProfileResponse"
+                title: Response Get Day Profiles Time Profiles Day Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+    post:
+      tags:
+      - time-profiles
+      summary: Post Day Profile
+      operationId: post_day_profile_time_profiles_day_post
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/DayTimeProfileCreateRequest"
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DayTimeProfileResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/time-profiles/day/{profile_id}":
+    patch:
+      tags:
+      - time-profiles
+      summary: Patch Day Profile
+      operationId: patch_day_profile_time_profiles_day__profile_id__patch
+      parameters:
+      - name: profile_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Profile Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/DayTimeProfileUpdateRequest"
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DayTimeProfileResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+    delete:
+      tags:
+      - time-profiles
+      summary: Remove Day Profile
+      operationId: remove_day_profile_time_profiles_day__profile_id__delete
+      parameters:
+      - name: profile_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Profile Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/time-profiles/week":
+    get:
+      tags:
+      - time-profiles
+      summary: Get Week Profiles
+      operationId: get_week_profiles_time_profiles_week_get
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/WeekTimeProfileResponse"
+                title: Response Get Week Profiles Time Profiles Week Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+    post:
+      tags:
+      - time-profiles
+      summary: Post Week Profile
+      operationId: post_week_profile_time_profiles_week_post
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/WeekTimeProfileCreateRequest"
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WeekTimeProfileResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/time-profiles/week/{profile_id}":
+    patch:
+      tags:
+      - time-profiles
+      summary: Patch Week Profile
+      operationId: patch_week_profile_time_profiles_week__profile_id__patch
+      parameters:
+      - name: profile_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Profile Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/WeekTimeProfileUpdateRequest"
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WeekTimeProfileResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+    delete:
+      tags:
+      - time-profiles
+      summary: Remove Week Profile
+      operationId: remove_week_profile_time_profiles_week__profile_id__delete
+      parameters:
+      - name: profile_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Profile Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/users":
+    get:
+      tags:
+      - users
+      summary: Get Users
+      operationId: get_users_users_get
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/UserResponse"
+                title: Response Get Users Users Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+    post:
+      tags:
+      - users
+      summary: Post User
+      operationId: post_user_users_post
+      parameters:
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/UserCreateRequest"
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/UserResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/users/{user_id}/credentials":
+    get:
+      tags:
+      - users
+      summary: Get Credentials
+      operationId: get_credentials_users__user_id__credentials_get
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: User Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/UserResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/users/{user_id}/revoke":
+    post:
+      tags:
+      - users
+      summary: Revoke
+      operationId: revoke_users__user_id__revoke_post
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: User Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/UserResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/users/{user_id}/password":
+    post:
+      tags:
+      - users
+      summary: Change Password
+      operationId: change_password_users__user_id__password_post
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: User Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/UserPasswordUpdateRequest"
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/UserResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/health":
+    get:
+      summary: Health
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+                title: Response Health Health Get
+  "/imports/schedule":
+    post:
+      summary: Import Schedule
+      operationId: import_schedule_imports_schedule_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ImportScheduleResponse"
+components:
+  schemas:
+    DayTimeProfileCreateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 150
+          minLength: 1
+          title: Name
+        slots:
+          items:
+            "$ref": "#/components/schemas/DayTimeProfileSlotRequest"
+          type: array
+          title: Slots
+      type: object
+      required:
+      - name
+      - slots
+      title: DayTimeProfileCreateRequest
+    DayTimeProfileResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        name:
+          type: string
+          title: Name
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        slots:
+          items:
+            "$ref": "#/components/schemas/DayTimeProfileSlotResponse"
+          type: array
+          title: Slots
+      type: object
+      required:
+      - id
+      - name
+      - created_at
+      - slots
+      title: DayTimeProfileResponse
+    DayTimeProfileSlotRequest:
+      properties:
+        slot_number:
+          type: integer
+          maximum: 7.0
+          minimum: 1.0
+          title: Slot Number
+        time_start:
+          type: string
+          format: time
+          title: Time Start
+        time_end:
+          type: string
+          format: time
+          title: Time End
+      type: object
+      required:
+      - slot_number
+      - time_start
+      - time_end
+      title: DayTimeProfileSlotRequest
+    DayTimeProfileSlotResponse:
+      properties:
+        slot_number:
+          type: integer
+          title: Slot Number
+        time_start:
+          type: string
+          format: time
+          title: Time Start
+        time_end:
+          type: string
+          format: time
+          title: Time End
+      type: object
+      required:
+      - slot_number
+      - time_start
+      - time_end
+      title: DayTimeProfileSlotResponse
+    DayTimeProfileUpdateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 150
+          minLength: 1
+          title: Name
+        slots:
+          items:
+            "$ref": "#/components/schemas/DayTimeProfileSlotRequest"
+          type: array
+          title: Slots
+      type: object
+      required:
+      - name
+      - slots
+      title: DayTimeProfileUpdateRequest
+    GroupHomeroomTeacherRequest:
+      properties:
+        teacher_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Teacher Id
+      type: object
+      title: GroupHomeroomTeacherRequest
+    GroupResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        name:
+          type: string
+          title: Name
+        course:
+          type: integer
+          title: Course
+        faculty:
+          type: string
+          title: Faculty
+        lesson_count:
+          type: integer
+          title: Lesson Count
+        homeroom_teacher_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Homeroom Teacher Id
+        homeroom_teacher_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Homeroom Teacher Name
+      type: object
+      required:
+      - id
+      - name
+      - course
+      - faculty
+      - lesson_count
+      title: GroupResponse
+    GroupUpdateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+      type: object
+      required:
+      - name
+      title: GroupUpdateRequest
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            "$ref": "#/components/schemas/ValidationError"
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ImportScheduleResponse:
+      properties:
+        timetable_count:
+          type: integer
+          title: Timetable Count
+        group_count:
+          type: integer
+          title: Group Count
+        lesson_count:
+          type: integer
+          title: Lesson Count
+        empty_day_count:
+          type: integer
+          title: Empty Day Count
+      type: object
+      required:
+      - timetable_count
+      - group_count
+      - lesson_count
+      - empty_day_count
+      title: ImportScheduleResponse
+    LessonCreateRequest:
+      properties:
+        group_name:
+          type: string
+          title: Group Name
+        course:
+          type: integer
+          title: Course
+          default: 0
+        faculty:
+          type: string
+          title: Faculty
+          default: ''
+        subject:
+          type: string
+          title: Subject
+        teacher_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Teacher Name
+        teacher_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Teacher Id
+        teacher_post:
+          type: string
+          title: Teacher Post
+          default: ''
+        room_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Room Name
+        date:
+          type: string
+          format: date
+          title: Date
+        time_start:
+          type: string
+          format: time
+          title: Time Start
+        time_end:
+          type: string
+          format: time
+          title: Time End
+        weekday:
+          type: integer
+          maximum: 7.0
+          minimum: 1.0
+          title: Weekday
+        week_number:
+          type: integer
+          title: Week Number
+        time_slot:
+          type: integer
+          minimum: 1.0
+          title: Time Slot
+        subgroup:
+          type: integer
+          minimum: 0.0
+          title: Subgroup
+          default: 0
+        lesson_type:
+          type: string
+          title: Lesson Type
+          default: ''
+      type: object
+      required:
+      - group_name
+      - subject
+      - date
+      - time_start
+      - time_end
+      - weekday
+      - week_number
+      - time_slot
+      title: LessonCreateRequest
+    LessonMutationResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        group_name:
+          type: string
+          title: Group Name
+        subject:
+          type: string
+          title: Subject
+        teacher_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Teacher Name
+        teacher_is_absent:
+          type: boolean
+          title: Teacher Is Absent
+          default: false
+        teacher_absence_reason:
+          type: string
+          title: Teacher Absence Reason
+          default: ''
+        room_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Room Name
+        date:
+          type: string
+          format: date
+          title: Date
+        time_start:
+          type: string
+          format: time
+          title: Time Start
+        time_end:
+          type: string
+          format: time
+          title: Time End
+        weekday:
+          type: integer
+          title: Weekday
+        week_number:
+          type: integer
+          title: Week Number
+        time_slot:
+          type: integer
+          title: Time Slot
+        subgroup:
+          type: integer
+          title: Subgroup
+        lesson_type:
+          type: string
+          title: Lesson Type
+        warnings:
+          items:
+            "$ref": "#/components/schemas/ScheduleProblemResponse"
+          type: array
+          title: Warnings
+      type: object
+      required:
+      - id
+      - group_name
+      - subject
+      - teacher_name
+      - room_name
+      - date
+      - time_start
+      - time_end
+      - weekday
+      - week_number
+      - time_slot
+      - subgroup
+      - lesson_type
+      title: LessonMutationResponse
+    LessonResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        group_name:
+          type: string
+          title: Group Name
+        subject:
+          type: string
+          title: Subject
+        teacher_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Teacher Name
+        teacher_is_absent:
+          type: boolean
+          title: Teacher Is Absent
+          default: false
+        teacher_absence_reason:
+          type: string
+          title: Teacher Absence Reason
+          default: ''
+        room_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Room Name
+        date:
+          type: string
+          format: date
+          title: Date
+        time_start:
+          type: string
+          format: time
+          title: Time Start
+        time_end:
+          type: string
+          format: time
+          title: Time End
+        weekday:
+          type: integer
+          title: Weekday
+        week_number:
+          type: integer
+          title: Week Number
+        time_slot:
+          type: integer
+          title: Time Slot
+        subgroup:
+          type: integer
+          title: Subgroup
+        lesson_type:
+          type: string
+          title: Lesson Type
+      type: object
+      required:
+      - id
+      - group_name
+      - subject
+      - teacher_name
+      - room_name
+      - date
+      - time_start
+      - time_end
+      - weekday
+      - week_number
+      - time_slot
+      - subgroup
+      - lesson_type
+      title: LessonResponse
+    LessonUpdateRequest:
+      properties:
+        group_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Group Name
+        course:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Course
+        faculty:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Faculty
+        subject:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Subject
+        teacher_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Teacher Name
+        teacher_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Teacher Id
+        teacher_post:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Teacher Post
+        room_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Room Name
+        date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date
+        time_start:
+          anyOf:
+          - type: string
+            format: time
+          - type: 'null'
+          title: Time Start
+        time_end:
+          anyOf:
+          - type: string
+            format: time
+          - type: 'null'
+          title: Time End
+        weekday:
+          anyOf:
+          - type: integer
+            maximum: 7.0
+            minimum: 1.0
+          - type: 'null'
+          title: Weekday
+        week_number:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Week Number
+        time_slot:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Time Slot
+        subgroup:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Subgroup
+        lesson_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lesson Type
+      type: object
+      title: LessonUpdateRequest
+    LoginRequest:
+      properties:
+        username:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Username
+        password:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Password
+      type: object
+      required:
+      - username
+      - password
+      title: LoginRequest
+    LoginResponse:
+      properties:
+        access_token:
+          type: string
+          title: Access Token
+        token_type:
+          type: string
+          title: Token Type
+          default: bearer
+        user:
+          "$ref": "#/components/schemas/UserResponse"
+      type: object
+      required:
+      - access_token
+      - user
+      title: LoginResponse
+    PublicScheduleDayResponse:
+      properties:
+        date:
+          type: string
+          format: date
+          title: Date
+        weekday:
+          type: integer
+          title: Weekday
+        lessons:
+          items:
+            "$ref": "#/components/schemas/LessonResponse"
+          type: array
+          title: Lessons
+      type: object
+      required:
+      - date
+      - weekday
+      title: PublicScheduleDayResponse
+    PublicScheduleWeekResponse:
+      properties:
+        week_start:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Week Start
+        week_end:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Week End
+        week_number:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Week Number
+        days:
+          items:
+            "$ref": "#/components/schemas/PublicScheduleDayResponse"
+          type: array
+          title: Days
+      type: object
+      title: PublicScheduleWeekResponse
+    RoomCreateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+      type: object
+      required:
+      - name
+      title: RoomCreateRequest
+    RoomExclusionRequest:
+      properties:
+        reason:
+          type: string
+          maxLength: 300
+          title: Reason
+          default: ''
+      type: object
+      title: RoomExclusionRequest
+    RoomResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        name:
+          type: string
+          title: Name
+        building:
+          type: string
+          title: Building
+        lesson_count:
+          type: integer
+          title: Lesson Count
+        is_excluded:
+          type: boolean
+          title: Is Excluded
+        exclusion_reason:
+          type: string
+          title: Exclusion Reason
+      type: object
+      required:
+      - id
+      - name
+      - building
+      - lesson_count
+      - is_excluded
+      - exclusion_reason
+      title: RoomResponse
+    ScheduleProblemResponse:
+      properties:
+        severity:
+          type: string
+          title: Severity
+        code:
+          type: string
+          title: Code
+        message:
+          type: string
+          title: Message
+        date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date
+        week_number:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Week Number
+        time_slot:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Time Slot
+        group_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Group Name
+        teacher_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Teacher Name
+        room_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Room Name
+        lesson_ids:
+          items:
+            type: integer
+          type: array
+          title: Lesson Ids
+      type: object
+      required:
+      - severity
+      - code
+      - message
+      title: ScheduleProblemResponse
+    ScheduleSlotRoomResponse:
+      properties:
+        room_name:
+          type: string
+          title: Room Name
+        building:
+          type: string
+          title: Building
+        room_is_excluded:
+          type: boolean
+          title: Room Is Excluded
+          default: false
+        room_exclusion_reason:
+          type: string
+          title: Room Exclusion Reason
+          default: ''
+        lesson:
+          anyOf:
+          - "$ref": "#/components/schemas/LessonResponse"
+          - type: 'null'
+      type: object
+      required:
+      - room_name
+      - building
+      - lesson
+      title: ScheduleSlotRoomResponse
+    TeacherAbsenceCreateRequest:
+      properties:
+        date:
+          type: string
+          format: date
+          title: Date
+        all_day:
+          type: boolean
+          title: All Day
+          default: false
+        time_slot_start:
+          anyOf:
+          - type: integer
+            maximum: 7.0
+            minimum: 1.0
+          - type: 'null'
+          title: Time Slot Start
+        time_slot_end:
+          anyOf:
+          - type: integer
+            maximum: 7.0
+            minimum: 1.0
+          - type: 'null'
+          title: Time Slot End
+        reason:
+          type: string
+          maxLength: 300
+          title: Reason
+          default: ''
+      type: object
+      required:
+      - date
+      title: TeacherAbsenceCreateRequest
+    TeacherAbsenceResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        date:
+          type: string
+          format: date
+          title: Date
+        all_day:
+          type: boolean
+          title: All Day
+        time_slot_start:
+          type: integer
+          title: Time Slot Start
+        time_slot_end:
+          type: integer
+          title: Time Slot End
+        reason:
+          type: string
+          title: Reason
+      type: object
+      required:
+      - id
+      - date
+      - all_day
+      - time_slot_start
+      - time_slot_end
+      - reason
+      title: TeacherAbsenceResponse
+    TeacherCreateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Name
+        teacher_id:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Teacher Id
+        post:
+          type: string
+          maxLength: 200
+          title: Post
+          default: ''
+      type: object
+      required:
+      - name
+      title: TeacherCreateRequest
+    TeacherResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        teacher_id:
+          type: string
+          title: Teacher Id
+        name:
+          type: string
+          title: Name
+        post:
+          type: string
+          title: Post
+        lesson_count:
+          type: integer
+          title: Lesson Count
+        absences:
+          items:
+            "$ref": "#/components/schemas/TeacherAbsenceResponse"
+          type: array
+          title: Absences
+      type: object
+      required:
+      - id
+      - teacher_id
+      - name
+      - post
+      - lesson_count
+      title: TeacherResponse
+    UserCreateRequest:
+      properties:
+        username:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Username
+        display_name:
+          type: string
+          maxLength: 150
+          minLength: 1
+          title: Display Name
+        password:
+          type: string
+          maxLength: 128
+          minLength: 8
+          title: Password
+        role:
+          type: string
+          enum:
+          - operator
+          - admin
+          title: Role
+      type: object
+      required:
+      - username
+      - display_name
+      - password
+      - role
+      title: UserCreateRequest
+    UserPasswordUpdateRequest:
+      properties:
+        password:
+          type: string
+          maxLength: 128
+          minLength: 8
+          title: Password
+      type: object
+      required:
+      - password
+      title: UserPasswordUpdateRequest
+    UserResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        username:
+          type: string
+          title: Username
+        display_name:
+          type: string
+          title: Display Name
+        role:
+          type: string
+          enum:
+          - operator
+          - admin
+          title: Role
+        is_active:
+          type: boolean
+          title: Is Active
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - username
+      - display_name
+      - role
+      - is_active
+      - created_at
+      title: UserResponse
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    WeekTimeProfileCreateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 150
+          minLength: 1
+          title: Name
+        days:
+          items:
+            "$ref": "#/components/schemas/WeekTimeProfileDayRequest"
+          type: array
+          title: Days
+      type: object
+      required:
+      - name
+      - days
+      title: WeekTimeProfileCreateRequest
+    WeekTimeProfileDayRequest:
+      properties:
+        weekday:
+          type: integer
+          maximum: 7.0
+          minimum: 1.0
+          title: Weekday
+        day_profile_id:
+          type: integer
+          title: Day Profile Id
+      type: object
+      required:
+      - weekday
+      - day_profile_id
+      title: WeekTimeProfileDayRequest
+    WeekTimeProfileDayResponse:
+      properties:
+        weekday:
+          type: integer
+          title: Weekday
+        day_profile_id:
+          type: integer
+          title: Day Profile Id
+        day_profile_name:
+          type: string
+          title: Day Profile Name
+      type: object
+      required:
+      - weekday
+      - day_profile_id
+      - day_profile_name
+      title: WeekTimeProfileDayResponse
+    WeekTimeProfileResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        name:
+          type: string
+          title: Name
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        days:
+          items:
+            "$ref": "#/components/schemas/WeekTimeProfileDayResponse"
+          type: array
+          title: Days
+      type: object
+      required:
+      - id
+      - name
+      - created_at
+      - days
+      title: WeekTimeProfileResponse
+    WeekTimeProfileUpdateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 150
+          minLength: 1
+          title: Name
+        days:
+          items:
+            "$ref": "#/components/schemas/WeekTimeProfileDayRequest"
+          type: array
+          title: Days
+      type: object
+      required:
+      - name
+      - days
+      title: WeekTimeProfileUpdateRequest

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.config import get_database_url
 from app.db.session import build_session_factory
-from app.schemas.user import UserCreateRequest, UserPasswordUpdateRequest
+from app.schemas.user import UserCreateRequest, UserPasswordUpdateRequest, UserResponse
 from app.services.auth.permissions import Actor, require_admin_actor
 from app.services.users import (
     DuplicateUserError,
@@ -22,7 +22,7 @@ from app.services.users import (
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get("")
+@router.get("", response_model=list[UserResponse])
 def get_users(
     request: Request,
     actor: Annotated[Actor, Depends(require_admin_actor)],
@@ -33,7 +33,7 @@ def get_users(
         return [user.model_dump(mode="json") for user in list_users(session)]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def post_user(
     request: Request,
     payload: UserCreateRequest,
@@ -52,7 +52,7 @@ def post_user(
     return result.model_dump(mode="json")
 
 
-@router.get("/{user_id}/credentials")
+@router.get("/{user_id}/credentials", response_model=UserResponse)
 def get_credentials(
     request: Request,
     user_id: int,
@@ -68,7 +68,7 @@ def get_credentials(
     return result.model_dump(mode="json")
 
 
-@router.post("/{user_id}/revoke")
+@router.post("/{user_id}/revoke", response_model=UserResponse)
 def revoke(
     request: Request,
     user_id: int,
@@ -85,7 +85,7 @@ def revoke(
     return result.model_dump(mode="json")
 
 
-@router.post("/{user_id}/password")
+@router.post("/{user_id}/password", response_model=UserResponse)
 def change_password(
     request: Request,
     user_id: int,

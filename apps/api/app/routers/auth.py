@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.config import get_database_url
 from app.db.session import build_session_factory
-from app.schemas.user import LoginRequest, LoginResponse
+from app.schemas.user import LoginRequest, LoginResponse, UserResponse
 from app.services.auth.permissions import Actor, require_editor_actor
 from app.services.auth.security import create_access_token
 from app.services.users import InvalidCredentialsError, authenticate_user, get_user_by_id
@@ -14,7 +14,7 @@ from app.services.users import InvalidCredentialsError, authenticate_user, get_u
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login")
+@router.post("/login", response_model=LoginResponse)
 def login(request: Request, payload: LoginRequest) -> dict:
     database_url = getattr(request.app.state, "database_url", None) or get_database_url()
     _engine, session_factory = build_session_factory(database_url)
@@ -31,7 +31,7 @@ def login(request: Request, payload: LoginRequest) -> dict:
     return response.model_dump(mode="json")
 
 
-@router.get("/me")
+@router.get("/me", response_model=UserResponse)
 def me(
     request: Request,
     actor: Annotated[Actor, Depends(require_editor_actor)],

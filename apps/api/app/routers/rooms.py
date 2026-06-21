@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.core.config import get_database_url
 from app.db.session import build_session_factory
-from app.schemas.room import RoomCreateRequest, RoomExclusionRequest
+from app.schemas.room import RoomCreateRequest, RoomExclusionRequest, RoomResponse
 from app.services.auth.permissions import Actor, require_editor_actor
 from app.services.rooms import (
     DuplicateRoomError,
@@ -21,7 +21,7 @@ from app.services.rooms import (
 router = APIRouter(prefix="/rooms", tags=["rooms"])
 
 
-@router.get("")
+@router.get("", response_model=list[RoomResponse])
 def get_rooms(
     request: Request,
     actor: Annotated[Actor, Depends(require_editor_actor)],
@@ -32,7 +32,7 @@ def get_rooms(
         return [room.model_dump(mode="json") for room in list_rooms(session)]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=RoomResponse, status_code=status.HTTP_201_CREATED)
 def post_room(
     request: Request,
     payload: RoomCreateRequest,
@@ -49,7 +49,7 @@ def post_room(
     return result.model_dump(mode="json")
 
 
-@router.post("/{room_id}/exclusion")
+@router.post("/{room_id}/exclusion", response_model=RoomResponse)
 def post_room_exclusion(
     request: Request,
     room_id: int,
@@ -67,7 +67,7 @@ def post_room_exclusion(
     return result.model_dump(mode="json")
 
 
-@router.delete("/{room_id}/exclusion")
+@router.delete("/{room_id}/exclusion", response_model=RoomResponse)
 def delete_room_exclusion(
     request: Request,
     room_id: int,
