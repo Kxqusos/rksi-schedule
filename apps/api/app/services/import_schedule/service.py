@@ -12,6 +12,20 @@ from app.db.session import build_session_factory
 from app.models import Group, Lesson, Room, ScheduleImport, Subject, Teacher
 
 
+MONDAY_WEEKDAY = 1
+CLASS_HOUR_SLOT = 4
+CLASS_HOUR_SUBJECT = "Классный час"
+LESSON_SLOT_TIMES = {
+    1: ("08:00", "09:30"),
+    2: ("09:40", "11:10"),
+    3: ("11:30", "13:00"),
+    4: ("13:10", "14:40"),
+    5: ("15:00", "16:30"),
+    6: ("16:40", "18:10"),
+    7: ("18:20", "19:50"),
+}
+
+
 @dataclass(slots=True)
 class ImportResult:
     timetable_count: int
@@ -53,7 +67,7 @@ def import_schedule_from_payload(payload: Any, database_url: str, source_path: s
                             seen_groups.add(group.source_name)
                             group_count += 1
                         for day_payload in group_payload.get("days", []):
-                            lessons = day_payload.get("lessons") or []
+                            lessons = _normalize_day_lessons(timetable, group_payload, day_payload)
                             if not lessons:
                                 empty_day_count += 1
                             for lesson_payload in lessons:
@@ -62,6 +76,8 @@ def import_schedule_from_payload(payload: Any, database_url: str, source_path: s
                                     continue
                                 subject = _get_or_create_subject(session, lesson_payload.get("subject", ""))
                                 teacher = _get_or_create_teacher(session, lesson_payload)
+                                if subject.source_name == CLASS_HOUR_SUBJECT and group.homeroom_teacher_id is not None:
+                                    teacher = session.get(Teacher, group.homeroom_teacher_id)
                                 room = _get_or_create_room(session, lesson_payload)
                                 lesson = Lesson(
                                     source_lesson_id=lesson_source_id,
@@ -120,6 +136,68 @@ def _parse_date(value: str):
 
 def _parse_time(value: str):
     return datetime.strptime(value, "%H:%M").time()
+
+
+def _normalize_day_lessons(
+    timetable_payload: dict[str, Any],
+    group_payload: dict[str, Any],
+    day_payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    lessons = [dict(lesson) for lesson in day_payload.get("lessons") or []]
+    if int(day_payload["weekday"]) != MONDAY_WEEKDAY:
+        return lessons
+    if not lessons:
+        return lessons
+
+    normalized: list[dict[str, Any]] = []
+    has_class_hour = False
+    for lesson in lessons:
+        slot = int(lesson["time"])
+        is_class_hour = str(lesson.get("subject", "")).strip() == CLASS_HOUR_SUBJECT
+        if is_class_hour and slot == CLASS_HOUR_SLOT:
+            has_class_hour = True
+        elif slot >= CLASS_HOUR_SLOT:
+            slot += 1
+            start_time, end_time = _slot_time_payload(slot)
+            lesson["time"] = slot
+            lesson["time_start"] = start_time
+            lesson["time_end"] = end_time
+        normalized.append(lesson)
+
+    if not has_class_hour:
+        normalized.append(_build_class_hour_lesson(timetable_payload, group_payload, lessons))
+    return normalized
+
+
+def _build_class_hour_lesson(
+    timetable_payload: dict[str, Any],
+    group_payload: dict[str, Any],
+    lessons: list[dict[str, Any]],
+) -> dict[str, Any]:
+    first_lesson = lessons[0] if lessons else {}
+    group_name = str(group_payload.get("group_name", "")).strip()
+    lesson_date = str(first_lesson.get("date") or timetable_payload["date_start"])
+    week_number = int(first_lesson.get("week") or timetable_payload["week_number"])
+    start_time, end_time = _slot_time_payload(CLASS_HOUR_SLOT)
+    return {
+        "subject": CLASS_HOUR_SUBJECT,
+        "type": CLASS_HOUR_SUBJECT,
+        "subgroup": 0,
+        "time_start": start_time,
+        "time_end": end_time,
+        "time": CLASS_HOUR_SLOT,
+        "week": week_number,
+        "date": lesson_date,
+        "teachers": [],
+        "auditories": [],
+        "Lesson_ID_Num": f"class-hour:{lesson_date}:{group_name}",
+    }
+
+
+def _slot_time_payload(slot: int) -> tuple[str, str]:
+    if slot not in LESSON_SLOT_TIMES:
+        raise ValueError(f"lesson slot {slot} has no configured time")
+    return LESSON_SLOT_TIMES[slot]
 
 
 def _get_or_create_group(session, payload: dict[str, Any]) -> Group:
