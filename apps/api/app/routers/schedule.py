@@ -7,7 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.core.config import get_database_url
 from app.db.session import build_session_factory
-from app.schemas.schedule_edit import LessonCreateRequest, LessonUpdateRequest
+from app.schemas.schedule_edit import (
+    LessonCreateRequest,
+    LessonMutationResponse,
+    LessonUpdateRequest,
+    PublicScheduleWeekResponse,
+    ScheduleProblemResponse,
+    ScheduleSlotRoomResponse,
+)
 from app.services.auth.permissions import Actor, require_editor_actor
 from app.services.schedule_editor import ConflictError, LessonNotFoundError
 from app.services.schedule_editor import create_lesson as create_lesson_service
@@ -18,7 +25,7 @@ from app.services.schedule_editor import update_lesson as update_lesson_service
 router = APIRouter(prefix="/schedule", tags=["schedule"])
 
 
-@router.get("/public/latest-week")
+@router.get("/public/latest-week", response_model=PublicScheduleWeekResponse)
 def get_public_latest_week(request: Request) -> dict:
     database_url = getattr(request.app.state, "database_url", None) or get_database_url()
     _engine, session_factory = build_session_factory(database_url)
@@ -26,7 +33,7 @@ def get_public_latest_week(request: Request) -> dict:
         return get_latest_public_week(session).model_dump(mode="json")
 
 
-@router.get("/lessons")
+@router.get("/lessons", response_model=list[ScheduleSlotRoomResponse])
 def get_lessons(
     request: Request,
     date: Date,
@@ -42,7 +49,7 @@ def get_lessons(
         ]
 
 
-@router.get("/problems")
+@router.get("/problems", response_model=list[ScheduleProblemResponse])
 def get_problems(
     request: Request,
     actor: Annotated[Actor, Depends(require_editor_actor)],
@@ -53,7 +60,7 @@ def get_problems(
         return [problem.model_dump(mode="json") for problem in list_schedule_problems(session)]
 
 
-@router.post("/lessons", status_code=status.HTTP_201_CREATED)
+@router.post("/lessons", response_model=LessonMutationResponse, status_code=status.HTTP_201_CREATED)
 def create_lesson(
     request: Request,
     payload: LessonCreateRequest,
@@ -73,7 +80,7 @@ def create_lesson(
     }
 
 
-@router.patch("/lessons/{lesson_id}")
+@router.patch("/lessons/{lesson_id}", response_model=LessonMutationResponse)
 def update_lesson(
     request: Request,
     lesson_id: int,

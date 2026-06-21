@@ -23,6 +23,13 @@ from app.services.teachers import teacher_absence_for_slot
 MAX_GROUP_WEEK_LESSONS = 18
 MAX_GROUP_DAY_LESSONS = 4
 MIN_GROUP_DAY_LESSONS = 2
+AGGREGATED_GROUP_PROBLEM_CODES = {
+    "group_week_limit_exceeded",
+    "group_day_limit_exceeded",
+    "group_day_minimum_not_met",
+    "group_day_window",
+    "group_slot_multiple_teachers",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +97,8 @@ def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: 
     original_group_id = lesson.group_id
     original_date = lesson.lesson_date
     original_week_number = lesson.week_number
+    original_room_id = lesson.room_id
+    changed_fields = payload.model_fields_set
 
     group_id = lesson.group_id
     subject_id = lesson.subject_id
@@ -105,13 +114,24 @@ def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: 
     if payload.teacher_id is not None or payload.teacher_name is not None:
         teacher = _get_or_create_teacher(session, payload.teacher_id, payload.teacher_name, payload.teacher_post)
         teacher_id = teacher.id if teacher else None
-    if payload.room_name is not None:
+    if "room_name" in changed_fields:
         room = _get_or_create_room(session, payload.room_name)
         room_id = room.id if room else None
 
     lesson_date = payload.date or lesson.lesson_date
     time_slot = payload.time_slot or lesson.time_slot
     subgroup = payload.subgroup if payload.subgroup is not None else lesson.subgroup
+    swapped_lesson = (
+        _lesson_in_room_slot(
+            session,
+            room_id=room_id,
+            lesson_date=lesson_date,
+            time_slot=time_slot,
+            exclude_lesson_id=lesson.id,
+        )
+        if "room_name" in changed_fields and room_id != original_room_id
+        else None
+    )
 
     _ensure_no_conflicts(
         session,
@@ -135,16 +155,19 @@ def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: 
     lesson.week_number = payload.week_number or lesson.week_number
     lesson.time_slot = time_slot
     lesson.subgroup = subgroup
+    if swapped_lesson is not None:
+        swapped_lesson.room_id = original_room_id
     if payload.lesson_type is not None:
         lesson.lesson_type = payload.lesson_type
     lesson.raw_payload = {**lesson.raw_payload, **payload.model_dump(mode="json", exclude_unset=True)}
     session.flush()
-    _ensure_group_rules(
-        session,
-        group_ids={original_group_id, group_id},
-        dates={original_date, lesson.lesson_date},
-        week_numbers={original_week_number, lesson.week_number},
-    )
+    if changed_fields - {"room_name"}:
+        _ensure_group_rules(
+            session,
+            group_ids={original_group_id, group_id},
+            dates={original_date, lesson.lesson_date},
+            week_numbers={original_week_number, lesson.week_number},
+        )
     _audit(session, action="update", lesson=lesson, actor=actor, payload=payload.model_dump(mode="json", exclude_unset=True))
     lesson_response = _lesson_response(session, lesson)
     return LessonMutationResult(lesson=lesson_response, warnings=_warnings_for_lesson(session, lesson))
@@ -275,6 +298,7 @@ def list_schedule_problems(session) -> list[ScheduleProblemResponse]:
     problems.extend(_double_booked_room_warnings(session))
     problems.extend(_absent_teacher_errors(session))
     problems.extend(_excluded_room_errors(session))
+    problems = _aggregate_group_problems(problems)
     return sorted(
         problems,
         key=lambda problem: (
@@ -285,6 +309,104 @@ def list_schedule_problems(session) -> list[ScheduleProblemResponse]:
             problem.code,
         ),
     )
+
+
+def _aggregate_group_problems(problems: list[ScheduleProblemResponse]) -> list[ScheduleProblemResponse]:
+    grouped: dict[str, list[ScheduleProblemResponse]] = {}
+    result: list[ScheduleProblemResponse] = []
+    for problem in problems:
+        if problem.code in AGGREGATED_GROUP_PROBLEM_CODES and problem.group_name:
+            grouped.setdefault(problem.code, []).append(problem)
+        else:
+            result.append(problem)
+
+    for code, code_problems in grouped.items():
+        if len(code_problems) == 1:
+            result.append(code_problems[0])
+            continue
+        group_names = _unique_values(problem.group_name for problem in code_problems)
+        lesson_ids: list[int] = []
+        for problem in code_problems:
+            lesson_ids.extend(problem.lesson_ids)
+        result.append(
+            ScheduleProblemResponse(
+                severity=code_problems[0].severity,
+                code=code,
+                message=_aggregated_group_problem_message(code_problems),
+                date=_single_value(problem.date for problem in code_problems),
+                week_number=_single_value(problem.week_number for problem in code_problems),
+                time_slot=_single_value(problem.time_slot for problem in code_problems),
+                group_name=", ".join(group_names),
+                lesson_ids=list(dict.fromkeys(lesson_ids)),
+            )
+        )
+    return result
+
+
+def _aggregated_group_problem_message(problems: list[ScheduleProblemResponse]) -> str:
+    code = problems[0].code
+    header = _aggregated_group_problem_header(code)
+    lines = [_aggregated_group_problem_line(problem) for problem in problems]
+    return "\n".join([header, *lines])
+
+
+def _aggregated_group_problem_header(code: str) -> str:
+    headers = {
+        "group_week_limit_exceeded": (
+            f"У перечисленных групп превышен максимум "
+            f"{MAX_GROUP_WEEK_LESSONS} {_pair_word(MAX_GROUP_WEEK_LESSONS)} за неделю:"
+        ),
+        "group_day_limit_exceeded": (
+            f"У перечисленных групп превышен максимум "
+            f"{MAX_GROUP_DAY_LESSONS} {_pair_word(MAX_GROUP_DAY_LESSONS)} в день:"
+        ),
+        "group_day_minimum_not_met": f"У перечисленных групп меньше {MIN_GROUP_DAY_LESSONS} пар в день:",
+        "group_day_window": "У перечисленных групп есть окно в расписании:",
+        "group_slot_multiple_teachers": "У перечисленных групп два преподавателя на одну пару:",
+    }
+    return headers.get(code, "У перечисленных групп есть проблема:")
+
+
+def _aggregated_group_problem_line(problem: ScheduleProblemResponse) -> str:
+    group_name = problem.group_name or "Без группы"
+    detail = _aggregated_group_problem_detail(problem)
+    return f"{group_name}: {detail}"
+
+
+def _aggregated_group_problem_detail(problem: ScheduleProblemResponse) -> str:
+    if problem.code in {"group_week_limit_exceeded", "group_day_limit_exceeded"}:
+        return problem.message.split(": ", 1)[1] if ": " in problem.message else problem.message
+    if problem.code == "group_day_minimum_not_met":
+        return f"{_problem_location(problem)}меньше {MIN_GROUP_DAY_LESSONS} пар."
+    if problem.code == "group_day_window":
+        return _problem_location(problem).removesuffix(". ")
+    if problem.code == "group_slot_multiple_teachers":
+        return f"{_problem_location(problem)}два преподавателя."
+    return problem.message
+
+
+def _problem_location(problem: ScheduleProblemResponse) -> str:
+    parts = []
+    if problem.date is not None:
+        parts.append(_format_display_date(problem.date))
+    if problem.week_number is not None:
+        parts.append(f"{problem.week_number} неделя")
+    if problem.time_slot is not None:
+        parts.append(f"{problem.time_slot} пара")
+    return f"{', '.join(parts)}. " if parts else ""
+
+
+def _format_display_date(value) -> str:
+    return value.strftime("%d.%m.%Y")
+
+
+def _unique_values(values) -> list:
+    return list(dict.fromkeys(value for value in values if value is not None and value != ""))
+
+
+def _single_value(values):
+    unique_values = _unique_values(values)
+    return unique_values[0] if len(unique_values) == 1 else None
 
 
 def _latest_import_id(session) -> int:
@@ -337,6 +459,26 @@ def _first_conflict(session, *conditions, exclude_lesson_id: int | None):
     return session.scalar(query.limit(1))
 
 
+def _lesson_in_room_slot(
+    session,
+    *,
+    room_id: int | None,
+    lesson_date,
+    time_slot: int,
+    exclude_lesson_id: int | None,
+) -> Lesson | None:
+    if room_id is None:
+        return None
+    query = select(Lesson).where(
+        Lesson.room_id == room_id,
+        Lesson.lesson_date == lesson_date,
+        Lesson.time_slot == time_slot,
+    )
+    if exclude_lesson_id is not None:
+        query = query.where(Lesson.id != exclude_lesson_id)
+    return session.scalar(query.order_by(Lesson.subgroup, Lesson.id).limit(1))
+
+
 def _ensure_group_rules(session, *, group_ids: set[int], dates: set, week_numbers: set[int]) -> None:
     for group_id in group_ids:
         for week_number in week_numbers:
@@ -369,7 +511,7 @@ def _group_week_errors(session, group_id: int, week_number: int) -> list[Schedul
     lessons = session.scalars(
         select(Lesson).where(Lesson.group_id == group_id, Lesson.week_number == week_number).order_by(Lesson.lesson_date, Lesson.time_slot)
     ).all()
-    counted_lessons = [lesson for lesson in lessons if not _is_additional_lesson(session, lesson)]
+    counted_lessons = [lesson for lesson in lessons if _counts_toward_group_pair_limits(session, lesson)]
     actual_count = _weekly_pair_count(counted_lessons)
     if actual_count <= MAX_GROUP_WEEK_LESSONS:
         return []
@@ -401,8 +543,10 @@ def _group_day_errors(session, group_id: int, lesson_date) -> list[ScheduleProbl
 
     group = session.get(Group, group_id)
     group_name = group.source_name if group else None
+    counted_lessons = [lesson for lesson in lessons if _counts_toward_group_pair_limits(session, lesson)]
     lesson_ids = [lesson.id for lesson in lessons]
-    actual_count = _daily_pair_count(lessons)
+    counted_lesson_ids = [lesson.id for lesson in counted_lessons]
+    actual_count = _daily_pair_count(counted_lessons)
     problems: list[ScheduleProblemResponse] = []
     if actual_count > MAX_GROUP_DAY_LESSONS:
         overage = actual_count - MAX_GROUP_DAY_LESSONS
@@ -418,7 +562,7 @@ def _group_day_errors(session, group_id: int, lesson_date) -> list[ScheduleProbl
                 ),
                 date=lesson_date,
                 group_name=group_name,
-                lesson_ids=lesson_ids,
+                lesson_ids=counted_lesson_ids,
             )
         )
     if actual_count < MIN_GROUP_DAY_LESSONS:
@@ -459,6 +603,10 @@ def _weekly_pair_count(lessons: list[Lesson]) -> int:
     return len({(lesson.lesson_date, lesson.time_slot) for lesson in lessons})
 
 
+def _counts_toward_group_pair_limits(session, lesson: Lesson) -> bool:
+    return not _is_additional_lesson(session, lesson) and not _is_class_hour_lesson(session, lesson)
+
+
 def _is_additional_lesson(session, lesson: Lesson) -> bool:
     subject = session.get(Subject, lesson.subject_id)
     raw_payload = lesson.raw_payload if isinstance(lesson.raw_payload, dict) else {}
@@ -471,9 +619,26 @@ def _is_additional_lesson(session, lesson: Lesson) -> bool:
     return any(_is_additional_lesson_label(str(label)) for label in labels if label is not None)
 
 
+def _is_class_hour_lesson(session, lesson: Lesson) -> bool:
+    subject = session.get(Subject, lesson.subject_id)
+    raw_payload = lesson.raw_payload if isinstance(lesson.raw_payload, dict) else {}
+    labels = [
+        lesson.lesson_type,
+        raw_payload.get("type", ""),
+        raw_payload.get("subject", ""),
+        subject.source_name if subject else "",
+    ]
+    return any(_is_class_hour_lesson_label(str(label)) for label in labels if label is not None)
+
+
 def _is_additional_lesson_label(label: str) -> bool:
     normalized = "".join(character for character in label.casefold() if character.isalnum())
     return normalized.startswith("доп") and "занят" in normalized
+
+
+def _is_class_hour_lesson_label(label: str) -> bool:
+    normalized = "".join(character for character in label.casefold() if character.isalnum())
+    return normalized == "классныйчас"
 
 
 def _group_slot_teacher_errors(session, group_id: int, lesson_date) -> list[ScheduleProblemResponse]:
@@ -518,6 +683,14 @@ def _pair_word(count: int, *, accusative: bool = False) -> str:
     if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
         return "пары"
     return "пар"
+
+
+def _group_word(count: int) -> str:
+    if count % 10 == 1 and count % 100 != 11:
+        return "группа"
+    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        return "группы"
+    return "групп"
 
 
 def _warnings_for_lesson(session, lesson: Lesson) -> list[ScheduleProblemResponse]:

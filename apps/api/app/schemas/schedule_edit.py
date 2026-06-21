@@ -75,6 +75,10 @@ class ScheduleProblemResponse(BaseModel):
     lesson_ids: list[int] = Field(default_factory=list)
 
 
+class LessonMutationResponse(LessonResponse):
+    warnings: list[ScheduleProblemResponse] = Field(default_factory=list)
+
+
 class ScheduleSlotRoomResponse(BaseModel):
     room_name: str
     building: str
