@@ -1038,9 +1038,9 @@ button {
 
 .schedule-table__head,
 .schedule-table__row {
-  min-width: 930px;
+  min-width: 960px;
   display: grid;
-  grid-template-columns: 92px minmax(104px, 0.9fr) minmax(220px, 1.6fr) minmax(180px, 1.2fr) 120px 96px;
+  grid-template-columns: 92px minmax(104px, 0.9fr) minmax(220px, 1.6fr) minmax(180px, 1.2fr) 120px 112px;
   align-items: center;
 }
 
@@ -1136,7 +1136,7 @@ button {
 }
 
 .schedule-pill {
-  min-width: 70px;
+  min-width: 84px;
   min-height: 26px;
   display: inline-flex;
   align-items: center;
@@ -1146,7 +1146,9 @@ button {
   padding: 0 9px;
   font-size: 12px;
   font-weight: 650;
-  line-height: 1;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .schedule-pill--busy {
@@ -1213,7 +1215,7 @@ button {
 
 .schedule-edit__snapshot {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1576,6 +1578,13 @@ button {
   gap: 18px;
 }
 
+.time-profiles-page {
+  width: min(1280px, 100%);
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
 .rooms-grid {
   display: grid;
   grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
@@ -1588,6 +1597,117 @@ button {
   grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
   align-items: start;
   gap: 14px;
+}
+
+.time-profiles-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+}
+
+.time-profile-tabs {
+  width: fit-content;
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 3px;
+}
+
+.time-profile-tab {
+  min-width: 96px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.time-profile-tab--active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.time-profile-form {
+  position: sticky;
+  top: 0;
+}
+
+.time-slot-editor,
+.week-day-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.time-slot-editor__row {
+  display: grid;
+  grid-template-columns: 28px 1fr 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.time-slot-editor__row > span {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.time-slot-editor__row input {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 0 8px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.time-profile-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.time-profile-list {
+  display: grid;
+  gap: 10px;
+}
+
+.time-profile-row {
+  align-items: start;
+}
+
+.time-profile-slots,
+.time-profile-week {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.time-profile-slots span,
+.time-profile-week span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .teachers-side {
@@ -1974,6 +2094,7 @@ button {
   color: var(--text);
   font-size: 14px;
   line-height: 1.4;
+  white-space: pre-line;
 }
 
 .problem-card__meta {

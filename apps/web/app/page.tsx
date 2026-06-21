@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, FormEvent } from "react";
 import {
   ClipboardList,
+  Clock3,
   DoorOpen,
   FileJson,
   History,
@@ -22,8 +23,10 @@ const primaryNav = [
 const operationsNav = [
   { label: "Замены занятий", icon: ClipboardList },
   { label: "Проблемы", icon: TriangleAlert },
+  { label: "Группы", icon: UsersRound },
   { label: "Кабинеты", icon: DoorOpen },
   { label: "Преподаватели", icon: UserRound },
+  { label: "Профили времени", icon: Clock3 },
 ];
 
 const adminNav = [
@@ -120,8 +123,10 @@ export default function Home() {
   const isWorkspacePage =
     activeSection === "Замены занятий" ||
     activeSection === "Проблемы" ||
+    activeSection === "Группы" ||
     activeSection === "Кабинеты" ||
     activeSection === "Преподаватели" ||
+    activeSection === "Профили времени" ||
     activeSection === "Импорт JSON" ||
     activeSection === "Пользователи и роли";
 
@@ -178,10 +183,14 @@ export default function Home() {
           <SchedulePage accessToken={session.accessToken} />
         ) : activeSection === "Проблемы" ? (
           <ProblemsPage accessToken={session.accessToken} />
+        ) : activeSection === "Группы" ? (
+          <GroupsPage accessToken={session.accessToken} />
         ) : activeSection === "Кабинеты" ? (
           <RoomsPage accessToken={session.accessToken} />
         ) : activeSection === "Преподаватели" ? (
           <TeachersPage accessToken={session.accessToken} />
+        ) : activeSection === "Профили времени" ? (
+          <TimeProfilesPage accessToken={session.accessToken} />
         ) : activeSection === "Импорт JSON" ? (
           <ImportPage />
         ) : activeSection === "Пользователи и роли" ? (
@@ -716,6 +725,16 @@ type TeacherRecord = {
   absences: TeacherAbsenceRecord[];
 };
 
+type GroupRecord = {
+  id: number;
+  name: string;
+  course: number;
+  faculty: string;
+  lesson_count: number;
+  homeroom_teacher_id: number | null;
+  homeroom_teacher_name: string | null;
+};
+
 type TeacherAbsenceRecord = {
   id: number;
   date: string;
@@ -723,6 +742,32 @@ type TeacherAbsenceRecord = {
   time_slot_start: number | null;
   time_slot_end: number | null;
   reason: string;
+};
+
+type DayTimeProfileSlot = {
+  slot_number: number;
+  time_start: string;
+  time_end: string;
+};
+
+type DayTimeProfile = {
+  id: number;
+  name: string;
+  created_at: string;
+  slots: DayTimeProfileSlot[];
+};
+
+type WeekTimeProfileDay = {
+  weekday: number;
+  day_profile_id: number;
+  day_profile_name: string;
+};
+
+type WeekTimeProfile = {
+  id: number;
+  name: string;
+  created_at: string;
+  days: WeekTimeProfileDay[];
 };
 
 type ScheduleProblem = {
@@ -873,6 +918,252 @@ function ProblemsPage({ accessToken }: { accessToken: string }) {
           <div className="users-empty">{busy ? "Загрузка..." : "Проблем по этому фильтру не найдено."}</div>
         )}
       </div>
+    </div>
+  );
+}
+
+function GroupsPage({ accessToken }: { accessToken: string }) {
+  const [groups, setGroups] = useState<GroupRecord[]>([]);
+  const [teachers, setTeachers] = useState<TeacherRecord[]>([]);
+  const [editingGroup, setEditingGroup] = useState<GroupRecord | null>(null);
+  const [editGroupName, setEditGroupName] = useState("");
+  const [editTeacherId, setEditTeacherId] = useState("");
+  const [status, setStatus] = useState("Загрузка списка групп.");
+  const [busy, setBusy] = useState<"load" | "save" | "delete" | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadGroups = async () => {
+      setBusy("load");
+      try {
+        const [groupsResponse, teachersResponse] = await Promise.all([
+          fetch(`${apiBaseUrl}/groups`, { headers: buildAuthHeaders(accessToken) }),
+          fetch(`${apiBaseUrl}/teachers`, { headers: buildAuthHeaders(accessToken) }),
+        ]);
+        if (!groupsResponse.ok || !teachersResponse.ok) {
+          throw new Error("failed to load groups");
+        }
+        const nextGroups = (await groupsResponse.json()) as GroupRecord[];
+        const nextTeachers = (await teachersResponse.json()) as TeacherRecord[];
+        if (!cancelled) {
+          setGroups(nextGroups.sort(compareGroups));
+          setTeachers(nextTeachers.sort(compareTeachers));
+          setStatus(nextGroups.length > 0 ? "Список групп загружен." : "Групп пока нет.");
+        }
+      } catch {
+        if (!cancelled) {
+          setStatus("Не удалось загрузить список групп.");
+        }
+      } finally {
+        if (!cancelled) {
+          setBusy(null);
+        }
+      }
+    };
+
+    void loadGroups();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!editingGroup) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && busy !== "save") {
+        setEditingGroup(null);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, editingGroup]);
+
+  const openGroupEditor = (group: GroupRecord) => {
+    setEditingGroup(group);
+    setEditGroupName(group.name);
+    setEditTeacherId(group.homeroom_teacher_id ? String(group.homeroom_teacher_id) : "");
+  };
+
+  const saveGroup = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingGroup) {
+      return;
+    }
+    const name = editGroupName.trim();
+    if (!name) {
+      setStatus("Введите название группы.");
+      return;
+    }
+
+    setBusy("save");
+    try {
+      const renameResponse = await fetch(`${apiBaseUrl}/groups/${editingGroup.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...buildAuthHeaders(accessToken),
+        },
+        body: JSON.stringify({ name }),
+      });
+      if (renameResponse.status === 409) {
+        setStatus("Группа с таким названием уже есть.");
+        return;
+      }
+      if (!renameResponse.ok) {
+        throw new Error(await renameResponse.text());
+      }
+
+      const teacherResponse = await fetch(`${apiBaseUrl}/groups/${editingGroup.id}/homeroom-teacher`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...buildAuthHeaders(accessToken),
+        },
+        body: JSON.stringify({ teacher_id: editTeacherId ? Number(editTeacherId) : null }),
+      });
+      if (!teacherResponse.ok) {
+        throw new Error(await teacherResponse.text());
+      }
+      const updated = (await teacherResponse.json()) as GroupRecord;
+      setGroups((currentGroups) => currentGroups.map((group) => (group.id === updated.id ? updated : group)).sort(compareGroups));
+      setEditingGroup(null);
+      setStatus(`Группа ${updated.name} обновлена.`);
+    } catch {
+      setStatus("Не удалось сохранить группу.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteGroup = async (group: GroupRecord) => {
+    const suffix = group.lesson_count > 0 ? ` Будет удалено занятий: ${group.lesson_count}.` : "";
+    if (!window.confirm(`Удалить группу ${group.name}?${suffix}`)) {
+      return;
+    }
+
+    setBusy("delete");
+    try {
+      const response = await fetch(`${apiBaseUrl}/groups/${group.id}`, {
+        method: "DELETE",
+        headers: buildAuthHeaders(accessToken),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      setGroups((currentGroups) => currentGroups.filter((item) => item.id !== group.id));
+      setEditingGroup((currentGroup) => (currentGroup?.id === group.id ? null : currentGroup));
+      setStatus(`Группа ${group.name} удалена.`);
+    } catch {
+      setStatus("Не удалось удалить группу.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="groups-page">
+      <div className="import-head">
+        <div>
+          <h1>Группы</h1>
+        </div>
+        <div className="import-chip-row">
+          <div className="import-chip">{groups.length} всего</div>
+          <div className="import-chip">Классные руководители</div>
+        </div>
+      </div>
+
+      <div className="groups-list">
+        {busy === "load" ? (
+          <div className="users-empty">Загрузка...</div>
+        ) : groups.length > 0 ? (
+          <div className="rooms-card-list">
+            {groups.map((group) => (
+              <div className="rooms-row" key={group.id}>
+                <div className="rooms-row__body">
+                  <strong>{group.name}</strong>
+                  <span>
+                    {group.course ? `${group.course} курс` : "Курс не указан"}
+                    {group.faculty ? ` · ${group.faculty}` : ""}
+                  </span>
+                  <span>{group.lesson_count} занятий</span>
+                  <span>{group.homeroom_teacher_name ? `Классный руководитель: ${group.homeroom_teacher_name}` : "Классный руководитель не назначен"}</span>
+                </div>
+                <div className="rooms-row-actions">
+                  <button className="users-row__action" disabled={busy !== null} onClick={() => openGroupEditor(group)} type="button">
+                    Изменить
+                  </button>
+                  <button
+                    aria-label={`Удалить группу ${group.name}`}
+                    className="users-row__action rooms-row__delete"
+                    disabled={busy !== null}
+                    onClick={() => deleteGroup(group)}
+                    title="Удалить"
+                    type="button"
+                  >
+                    <Trash2 aria-hidden="true" size={15} strokeWidth={2} />
+                    <span>Удалить</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="users-empty">Групп пока нет.</div>
+        )}
+      </div>
+      <div className="import-status">{status}</div>
+
+      {editingGroup ? (
+        <div className="teachers-modal" role="dialog" aria-modal="true" aria-labelledby="group-edit-title">
+          <button
+            aria-label="Закрыть меню группы"
+            className="teachers-modal__backdrop"
+            disabled={busy === "save"}
+            onClick={() => setEditingGroup(null)}
+            type="button"
+          />
+          <form className="teachers-absence-dialog" onSubmit={saveGroup}>
+            <div className="schedule-edit__section-head">
+              <span>Группа</span>
+            </div>
+            <div className="teachers-absence-dialog__title" id="group-edit-title">
+              {editingGroup.name}
+            </div>
+            <label className="field">
+              <span>Название</span>
+              <input
+                disabled={busy !== null}
+                maxLength={100}
+                onChange={(event) => setEditGroupName(event.target.value)}
+                value={editGroupName}
+              />
+            </label>
+            <label className="field">
+              <span>Классный руководитель</span>
+              <select disabled={busy !== null} onChange={(event) => setEditTeacherId(event.target.value)} value={editTeacherId}>
+                <option value="">Не назначен</option>
+                {teachers.map((teacher) => (
+                  <option key={teacher.id} value={teacher.id}>
+                    {teacher.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="schedule-edit__actions">
+              <button className="users-row__action" disabled={busy === "save"} onClick={() => setEditingGroup(null)} type="button">
+                Отмена
+              </button>
+              <button className="import-button import-button--primary" disabled={busy !== null} type="submit">
+                {busy === "save" ? "Сохраняем..." : "Сохранить"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1623,6 +1914,427 @@ function TeachersPage({ accessToken }: { accessToken: string }) {
   );
 }
 
+function TimeProfilesPage({ accessToken }: { accessToken: string }) {
+  const [activeTab, setActiveTab] = useState<"day" | "week">("day");
+  const [dayProfiles, setDayProfiles] = useState<DayTimeProfile[]>([]);
+  const [weekProfiles, setWeekProfiles] = useState<WeekTimeProfile[]>([]);
+  const [editingDayProfile, setEditingDayProfile] = useState<DayTimeProfile | null>(null);
+  const [editingWeekProfile, setEditingWeekProfile] = useState<WeekTimeProfile | null>(null);
+  const [dayProfileName, setDayProfileName] = useState("");
+  const [dayProfileSlots, setDayProfileSlots] = useState<DayTimeProfileSlot[]>(createDefaultDayTimeSlots());
+  const [weekProfileName, setWeekProfileName] = useState("");
+  const [weekProfileDays, setWeekProfileDays] = useState(createEmptyWeekProfileDays());
+  const [status, setStatus] = useState("Загрузка профилей времени.");
+  const [busy, setBusy] = useState<"load" | "day" | "week" | "delete" | null>(null);
+
+  const loadProfiles = async () => {
+    setBusy("load");
+    try {
+      const [dayResponse, weekResponse] = await Promise.all([
+        fetch(`${apiBaseUrl}/time-profiles/day`, { headers: buildAuthHeaders(accessToken) }),
+        fetch(`${apiBaseUrl}/time-profiles/week`, { headers: buildAuthHeaders(accessToken) }),
+      ]);
+      if (!dayResponse.ok || !weekResponse.ok) {
+        throw new Error("failed to load time profiles");
+      }
+      const nextDayProfiles = (await dayResponse.json()) as DayTimeProfile[];
+      const nextWeekProfiles = (await weekResponse.json()) as WeekTimeProfile[];
+      setDayProfiles(nextDayProfiles);
+      setWeekProfiles(nextWeekProfiles);
+      setStatus(nextDayProfiles.length || nextWeekProfiles.length ? "Профили времени загружены." : "Профилей времени пока нет.");
+    } catch {
+      setStatus("Не удалось загрузить профили времени.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  useEffect(() => {
+    void loadProfiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken]);
+
+  const resetDayForm = () => {
+    setEditingDayProfile(null);
+    setDayProfileName("");
+    setDayProfileSlots(createDefaultDayTimeSlots());
+  };
+
+  const resetWeekForm = () => {
+    setEditingWeekProfile(null);
+    setWeekProfileName("");
+    setWeekProfileDays(createEmptyWeekProfileDays(dayProfiles[0]?.id ?? 0));
+  };
+
+  useEffect(() => {
+    if (editingWeekProfile || weekProfileDays.some((day) => day.day_profile_id !== 0) || dayProfiles.length === 0) {
+      return;
+    }
+    setWeekProfileDays(createEmptyWeekProfileDays(dayProfiles[0].id));
+  }, [dayProfiles, editingWeekProfile, weekProfileDays]);
+
+  const updateDaySlot = (slotNumber: number, field: "time_start" | "time_end", value: string) => {
+    setDayProfileSlots((currentSlots) =>
+      currentSlots.map((slot) => (slot.slot_number === slotNumber ? { ...slot, [field]: normalizeTimeInput(value) } : slot)),
+    );
+  };
+
+  const saveDayProfile = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = dayProfileName.trim();
+    if (!name) {
+      setStatus("Введите название профиля дня.");
+      return;
+    }
+
+    setBusy("day");
+    try {
+      const response = await fetch(
+        editingDayProfile ? `${apiBaseUrl}/time-profiles/day/${editingDayProfile.id}` : `${apiBaseUrl}/time-profiles/day`,
+        {
+          method: editingDayProfile ? "PATCH" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...buildAuthHeaders(accessToken),
+          },
+          body: JSON.stringify({ name, slots: dayProfileSlots }),
+        },
+      );
+      if (response.status === 409) {
+        setStatus("Профиль дня с таким названием уже есть.");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      resetDayForm();
+      await loadProfiles();
+      setStatus(editingDayProfile ? "Профиль дня обновлён." : "Профиль дня создан.");
+    } catch {
+      setStatus("Не удалось сохранить профиль дня.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const editDayProfile = (profile: DayTimeProfile) => {
+    setActiveTab("day");
+    setEditingDayProfile(profile);
+    setDayProfileName(profile.name);
+    setDayProfileSlots(profile.slots.map((slot) => ({ ...slot })));
+  };
+
+  const deleteDayProfile = async (profile: DayTimeProfile) => {
+    if (!window.confirm(`Удалить профиль дня ${profile.name}?`)) {
+      return;
+    }
+
+    setBusy("delete");
+    try {
+      const response = await fetch(`${apiBaseUrl}/time-profiles/day/${profile.id}`, {
+        method: "DELETE",
+        headers: buildAuthHeaders(accessToken),
+      });
+      if (response.status === 409) {
+        setStatus("Профиль дня используется в профиле недели.");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      if (editingDayProfile?.id === profile.id) {
+        resetDayForm();
+      }
+      await loadProfiles();
+      setStatus("Профиль дня удалён.");
+    } catch {
+      setStatus("Не удалось удалить профиль дня.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const updateWeekDay = (weekday: number, dayProfileId: number) => {
+    setWeekProfileDays((currentDays) =>
+      currentDays.map((day) => (day.weekday === weekday ? { ...day, day_profile_id: dayProfileId } : day)),
+    );
+  };
+
+  const saveWeekProfile = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = weekProfileName.trim();
+    if (!name) {
+      setStatus("Введите название профиля недели.");
+      return;
+    }
+    if (dayProfiles.length === 0 || weekProfileDays.some((day) => day.day_profile_id === 0)) {
+      setStatus("Выберите профиль дня для каждого дня недели.");
+      return;
+    }
+
+    setBusy("week");
+    try {
+      const response = await fetch(
+        editingWeekProfile ? `${apiBaseUrl}/time-profiles/week/${editingWeekProfile.id}` : `${apiBaseUrl}/time-profiles/week`,
+        {
+          method: editingWeekProfile ? "PATCH" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...buildAuthHeaders(accessToken),
+          },
+          body: JSON.stringify({ name, days: weekProfileDays }),
+        },
+      );
+      if (response.status === 409) {
+        setStatus("Профиль недели с таким названием уже есть.");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      resetWeekForm();
+      await loadProfiles();
+      setStatus(editingWeekProfile ? "Профиль недели обновлён." : "Профиль недели создан.");
+    } catch {
+      setStatus("Не удалось сохранить профиль недели.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const editWeekProfile = (profile: WeekTimeProfile) => {
+    setActiveTab("week");
+    setEditingWeekProfile(profile);
+    setWeekProfileName(profile.name);
+    setWeekProfileDays(profile.days.map((day) => ({ weekday: day.weekday, day_profile_id: day.day_profile_id })));
+  };
+
+  const deleteWeekProfile = async (profile: WeekTimeProfile) => {
+    if (!window.confirm(`Удалить профиль недели ${profile.name}?`)) {
+      return;
+    }
+
+    setBusy("delete");
+    try {
+      const response = await fetch(`${apiBaseUrl}/time-profiles/week/${profile.id}`, {
+        method: "DELETE",
+        headers: buildAuthHeaders(accessToken),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      if (editingWeekProfile?.id === profile.id) {
+        resetWeekForm();
+      }
+      await loadProfiles();
+      setStatus("Профиль недели удалён.");
+    } catch {
+      setStatus("Не удалось удалить профиль недели.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="time-profiles-page">
+      <div className="import-head">
+        <div>
+          <h1>Профили времени</h1>
+        </div>
+        <div className="import-chip-row">
+          <div className="import-chip">{dayProfiles.length} дневных</div>
+          <div className="import-chip">{weekProfiles.length} недельных</div>
+        </div>
+      </div>
+
+      <div className="time-profile-tabs" role="tablist" aria-label="Тип профиля времени">
+        <button
+          aria-pressed={activeTab === "day"}
+          className={activeTab === "day" ? "time-profile-tab time-profile-tab--active" : "time-profile-tab"}
+          onClick={() => setActiveTab("day")}
+          type="button"
+        >
+          День
+        </button>
+        <button
+          aria-pressed={activeTab === "week"}
+          className={activeTab === "week" ? "time-profile-tab time-profile-tab--active" : "time-profile-tab"}
+          onClick={() => setActiveTab("week")}
+          type="button"
+        >
+          Неделя
+        </button>
+      </div>
+
+      <div className="time-profiles-grid">
+        {activeTab === "day" ? (
+          <>
+            <form className="users-panel time-profile-form" onSubmit={saveDayProfile}>
+              <div className="users-panel__title">{editingDayProfile ? "Редактирование дня" : "Новый профиль дня"}</div>
+              <label className="field">
+                <span>Название</span>
+                <input
+                  disabled={busy !== null}
+                  maxLength={150}
+                  onChange={(event) => setDayProfileName(event.target.value)}
+                  placeholder="Обычный день"
+                  value={dayProfileName}
+                />
+              </label>
+              <div className="time-slot-editor">
+                {dayProfileSlots.map((slot) => (
+                  <div className="time-slot-editor__row" key={slot.slot_number}>
+                    <span>{slot.slot_number}</span>
+                    <input
+                      aria-label={`${slot.slot_number} занятие начало`}
+                      disabled={busy !== null}
+                      onChange={(event) => updateDaySlot(slot.slot_number, "time_start", event.target.value)}
+                      type="time"
+                      value={toTimeInput(slot.time_start)}
+                    />
+                    <input
+                      aria-label={`${slot.slot_number} занятие конец`}
+                      disabled={busy !== null}
+                      onChange={(event) => updateDaySlot(slot.slot_number, "time_end", event.target.value)}
+                      type="time"
+                      value={toTimeInput(slot.time_end)}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="time-profile-actions">
+                {editingDayProfile ? (
+                  <button className="users-row__action" disabled={busy !== null} onClick={resetDayForm} type="button">
+                    Отмена
+                  </button>
+                ) : null}
+                <button className="import-button import-button--primary" disabled={busy !== null} type="submit">
+                  {busy === "day" ? "Сохраняем..." : editingDayProfile ? "Сохранить" : "Создать"}
+                </button>
+              </div>
+              <div className="import-status">{status}</div>
+            </form>
+
+            <div className="time-profile-list">
+              {busy === "load" ? (
+                <div className="users-empty">Загрузка...</div>
+              ) : dayProfiles.length > 0 ? (
+                <div className="rooms-card-list">
+                  {dayProfiles.map((profile) => (
+                    <div className="rooms-row time-profile-row" key={profile.id}>
+                      <div className="rooms-row__body">
+                        <strong>{profile.name}</strong>
+                        <div className="time-profile-slots">
+                          {profile.slots.map((slot) => (
+                            <span key={slot.slot_number}>
+                              {slot.slot_number}: {formatTimeShort(slot.time_start)}-{formatTimeShort(slot.time_end)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="rooms-row-actions">
+                        <button className="users-row__action" disabled={busy !== null} onClick={() => editDayProfile(profile)} type="button">
+                          Изменить
+                        </button>
+                        <button className="users-row__action rooms-row__delete" disabled={busy !== null} onClick={() => deleteDayProfile(profile)} type="button">
+                          <Trash2 aria-hidden="true" size={15} strokeWidth={2} />
+                          <span>Удалить</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="users-empty">Профилей дня пока нет.</div>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <form className="users-panel time-profile-form" onSubmit={saveWeekProfile}>
+              <div className="users-panel__title">{editingWeekProfile ? "Редактирование недели" : "Новый профиль недели"}</div>
+              <label className="field">
+                <span>Название</span>
+                <input
+                  disabled={busy !== null}
+                  maxLength={150}
+                  onChange={(event) => setWeekProfileName(event.target.value)}
+                  placeholder="Учебная неделя"
+                  value={weekProfileName}
+                />
+              </label>
+              <div className="week-day-editor">
+                {weekProfileDays.map((day) => (
+                  <label className="field" key={day.weekday}>
+                    <span>{weekdayLabels[day.weekday]}</span>
+                    <select
+                      disabled={busy !== null || dayProfiles.length === 0}
+                      onChange={(event) => updateWeekDay(day.weekday, Number(event.target.value))}
+                      value={day.day_profile_id}
+                    >
+                      <option value={0}>Выберите профиль</option>
+                      {dayProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              <div className="time-profile-actions">
+                {editingWeekProfile ? (
+                  <button className="users-row__action" disabled={busy !== null} onClick={resetWeekForm} type="button">
+                    Отмена
+                  </button>
+                ) : null}
+                <button className="import-button import-button--primary" disabled={busy !== null || dayProfiles.length === 0} type="submit">
+                  {busy === "week" ? "Сохраняем..." : editingWeekProfile ? "Сохранить" : "Создать"}
+                </button>
+              </div>
+              <div className="import-status">{dayProfiles.length === 0 ? "Сначала создайте профиль дня." : status}</div>
+            </form>
+
+            <div className="time-profile-list">
+              {busy === "load" ? (
+                <div className="users-empty">Загрузка...</div>
+              ) : weekProfiles.length > 0 ? (
+                <div className="rooms-card-list">
+                  {weekProfiles.map((profile) => (
+                    <div className="rooms-row time-profile-row" key={profile.id}>
+                      <div className="rooms-row__body">
+                        <strong>{profile.name}</strong>
+                        <div className="time-profile-week">
+                          {profile.days.map((day) => (
+                            <span key={day.weekday}>
+                              {weekdayLabels[day.weekday]}: {day.day_profile_name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="rooms-row-actions">
+                        <button className="users-row__action" disabled={busy !== null} onClick={() => editWeekProfile(profile)} type="button">
+                          Изменить
+                        </button>
+                        <button className="users-row__action rooms-row__delete" disabled={busy !== null} onClick={() => deleteWeekProfile(profile)} type="button">
+                          <Trash2 aria-hidden="true" size={15} strokeWidth={2} />
+                          <span>Удалить</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="users-empty">Профилей недели пока нет.</div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type ImportApiResult = {
   timetable_count: number;
   group_count: number;
@@ -1871,10 +2583,12 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
   const [editGroupName, setEditGroupName] = useState("");
   const [editSubject, setEditSubject] = useState("");
   const [editTeacherName, setEditTeacherName] = useState("");
+  const [editRoomName, setEditRoomName] = useState("");
   const [mutationWarnings, setMutationWarnings] = useState<ScheduleProblem[]>([]);
   const [status, setStatus] = useState("Выберите дату и номер занятия.");
   const [busy, setBusy] = useState(false);
   const [savingLesson, setSavingLesson] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -1913,7 +2627,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, selectedDate, selectedSlot]);
+  }, [accessToken, selectedDate, selectedSlot, reloadToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1946,6 +2660,9 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
   }, [accessToken, selectedDate, selectedSlot]);
 
   const groupedRows = useMemo(() => groupScheduleRows(rows), [rows]);
+  const availableRoomNames = useMemo(() => {
+    return Array.from(new Set(rows.map((row) => row.room_name).filter((roomName) => roomName !== "Без кабинета"))).sort(compareRoomNames);
+  }, [rows]);
   const selectedTeacher = useMemo(() => {
     const teacherName = editTeacherName.trim();
     if (!teacherName) {
@@ -1981,6 +2698,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
       setEditGroupName(row.lesson.group_name);
       setEditSubject(row.lesson.subject);
       setEditTeacherName(row.lesson.teacher_name ?? "");
+      setEditRoomName(editableScheduleRoomName(row.lesson.room_name ?? row.room_name));
       setMutationWarnings([]);
       return;
     }
@@ -1994,6 +2712,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
     setEditGroupName("");
     setEditSubject("");
     setEditTeacherName("");
+    setEditRoomName(editableScheduleRoomName(row.room_name));
     setMutationWarnings([]);
   };
 
@@ -2014,6 +2733,10 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
       setStatus("Выберите доступного преподавателя.");
       return;
     }
+    if (editRoomName.trim() && !availableRoomNames.includes(editRoomName.trim())) {
+      setStatus("Выберите кабинет из списка.");
+      return;
+    }
 
     setSavingLesson(true);
     try {
@@ -2030,6 +2753,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
                 subject: editSubject.trim(),
                 teacher_name: editTeacherName.trim(),
                 teacher_id: selectedTeacher?.teacher_id ?? null,
+                room_name: normalizeScheduleRoomName(editRoomName),
               }),
             })
           : await fetch(`${apiBaseUrl}/schedule/lessons`, {
@@ -2041,7 +2765,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
               body: JSON.stringify(buildLessonCreatePayload({
                 date: selectedDate,
                 groupName: editGroupName.trim(),
-                roomName: editorState.roomName,
+                roomName: normalizeScheduleRoomName(editRoomName) ?? editorState.roomName,
                 slot: selectedSlot,
                 subject: editSubject.trim(),
                 teacherName: editTeacherName.trim(),
@@ -2053,15 +2777,6 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
         throw new Error(await response.text());
       }
       const updated = (await response.json()) as LessonMutationResponse;
-      setRows((currentRows) => {
-        const targetRoomName = updated.room_name ?? editorState.roomName;
-        return currentRows.map((row) => {
-          if (row.lesson?.id === updated.id || row.room_name === targetRoomName) {
-            return { ...row, lesson: updated };
-          }
-          return row;
-        });
-      });
       setEditorState({
         mode: "update",
         lesson: updated,
@@ -2072,7 +2787,9 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
       setEditGroupName(updated.group_name);
       setEditSubject(updated.subject);
       setEditTeacherName(updated.teacher_name ?? "");
+      setEditRoomName(editableScheduleRoomName(updated.room_name));
       setMutationWarnings(updated.warnings ?? []);
+      setReloadToken((value) => value + 1);
       setStatus(
         updated.warnings && updated.warnings.length > 0
           ? "Сохранено с предупреждениями."
@@ -2095,10 +2812,6 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
   const currentRoomExclusionReason = editorState?.roomIsExcluded
     ? editorState.roomExclusionReason || "Причина не указана."
     : "";
-  const targetTimeSlot = lessonTimeSlots[selectedSlot] ?? lessonTimeSlots[1];
-  const targetTimeLabel = currentLesson
-    ? `${formatTimeShort(currentLesson.time_start)} – ${formatTimeShort(currentLesson.time_end)}`
-    : `${formatTimeShort(targetTimeSlot.start)} – ${formatTimeShort(targetTimeSlot.end)}`;
 
   return (
     <div className="schedule-page">
@@ -2176,8 +2889,8 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
                   <strong>{currentLesson?.teacher_name ?? "—"}</strong>
                 </div>
                 <div className="schedule-edit__row">
-                  <span>Время</span>
-                  <strong>{targetTimeLabel}</strong>
+                  <span>Кабинет</span>
+                  <strong>{currentLesson?.room_name ?? editorState.roomName}</strong>
                 </div>
               </div>
             </section>
@@ -2205,6 +2918,20 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
                 <span>После</span>
               </div>
               <div className="schedule-edit__fields">
+                <label className="field">
+                  <span>Кабинет</span>
+                  <input
+                    disabled={savingLesson}
+                    list="available-rooms"
+                    onChange={(event) => setEditRoomName(event.target.value)}
+                    value={editRoomName}
+                  />
+                  <datalist id="available-rooms">
+                    {availableRoomNames.map((roomName) => (
+                      <option key={roomName} value={roomName} />
+                    ))}
+                  </datalist>
+                </label>
                 <label className="field">
                   <span>Группа</span>
                   <input disabled={savingLesson} onChange={(event) => setEditGroupName(event.target.value)} value={editGroupName} />
@@ -2271,7 +2998,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
                   <div>Время</div>
                   <div>Статус</div>
                 </div>
-                {buildingGroup.rooms.map((row) => (
+                {buildingGroup.rooms.map((row, index) => (
                   <button
                     className={
                       row.room_is_excluded || row.lesson?.teacher_is_absent
@@ -2279,7 +3006,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
                         : "schedule-table__row schedule-table__row--editable"
                     }
                     disabled={savingLesson}
-                    key={`${buildingGroup.building}-${row.room_name}`}
+                    key={`${buildingGroup.building}-${row.room_name}-${row.lesson?.id ?? "empty"}-${index}`}
                     onClick={() => openRowEditor(row)}
                     type="button"
                   >
@@ -2304,7 +3031,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
                     <div>{row.lesson ? `${formatTimeShort(row.lesson.time_start)} – ${formatTimeShort(row.lesson.time_end)}` : "—"}</div>
                     <div>
                       <span className={row.lesson ? "schedule-pill schedule-pill--busy" : "schedule-pill schedule-pill--free"}>
-                        {row.lesson ? "занято" : "свободно"}
+                        {row.lesson ? "Занято" : "Свободно"}
                       </span>
                     </div>
                   </button>
@@ -2356,6 +3083,14 @@ function groupRoomsByBuilding(rooms: RoomRecord[]) {
 
 function compareRooms(left: RoomRecord, right: RoomRecord) {
   return left.name.localeCompare(right.name, "ru", { numeric: true });
+}
+
+function compareGroups(left: GroupRecord, right: GroupRecord) {
+  return left.name.localeCompare(right.name, "ru", { numeric: true });
+}
+
+function compareRoomNames(left: string, right: string) {
+  return left.localeCompare(right, "ru", { numeric: true });
 }
 
 function compareTeachers(left: TeacherRecord, right: TeacherRecord) {
@@ -2586,21 +3321,22 @@ function buildAuthHeaders(accessToken: string): HeadersInit {
 }
 
 function formatDateTime(value: string): string {
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+  const date = new Date(value);
+  const datePart = formatDateParts(date.getFullYear(), date.getMonth() + 1, date.getDate());
+  const timePart = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  return `${datePart} ${timePart}`;
 }
 
 function formatPlainDate(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(new Date(`${value}T00:00:00`));
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) {
+    return value;
+  }
+  return formatDateParts(year, month, day);
+}
+
+function formatDateParts(year: number, month: number, day: number) {
+  return `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`;
 }
 
 function formatAbsence(absence: TeacherAbsenceRecord) {
@@ -2663,4 +3399,49 @@ function formatTimeShort(value: string) {
 
 function formatScheduleReason(value: string) {
   return value.trim() || "Причина не указана";
+}
+
+function editableScheduleRoomName(roomName: string | null) {
+  return roomName && roomName !== "Без кабинета" ? roomName : "";
+}
+
+function normalizeScheduleRoomName(roomName: string) {
+  const trimmed = roomName.trim();
+  return trimmed ? trimmed : null;
+}
+
+const weekdayLabels: Record<number, string> = {
+  1: "Пн",
+  2: "Вт",
+  3: "Ср",
+  4: "Чт",
+  5: "Пт",
+  6: "Сб",
+  7: "Вс",
+};
+
+function createDefaultDayTimeSlots(): DayTimeProfileSlot[] {
+  return lessonSlots.map((slot) => {
+    const timeSlot = lessonTimeSlots[slot] ?? lessonTimeSlots[1];
+    return {
+      slot_number: slot,
+      time_start: timeSlot.start,
+      time_end: timeSlot.end,
+    };
+  });
+}
+
+function createEmptyWeekProfileDays(dayProfileId = 0) {
+  return lessonSlots.map((weekday) => ({
+    weekday,
+    day_profile_id: dayProfileId,
+  }));
+}
+
+function toTimeInput(value: string) {
+  return value.slice(0, 5);
+}
+
+function normalizeTimeInput(value: string) {
+  return value.length === 5 ? `${value}:00` : value;
 }

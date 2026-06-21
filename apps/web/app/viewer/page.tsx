@@ -218,18 +218,19 @@ function compareLessons(left: PublicLesson, right: PublicLesson) {
 }
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(new Date(`${value}T00:00:00`));
+  return formatPlainDate(value);
 }
 
 function formatShortDate(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-  }).format(new Date(`${value}T00:00:00`));
+  return formatPlainDate(value);
+}
+
+function formatPlainDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) {
+    return value;
+  }
+  return `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`;
 }
 
 function formatTimeRange(start: string, end: string) {
