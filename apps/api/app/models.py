@@ -50,6 +50,7 @@ class Group(Base):
     source_name: Mapped[str] = mapped_column(String(100), nullable=False)
     course: Mapped[int] = mapped_column(Integer, nullable=False)
     faculty: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    homeroom_teacher_id: Mapped[int | None] = mapped_column(ForeignKey("teachers.id"), nullable=True)
 
 
 class Teacher(Base):
@@ -83,6 +84,45 @@ class Room(Base):
     source_name: Mapped[str] = mapped_column(String(100), nullable=False)
     is_excluded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     exclusion_reason: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+
+
+class DayTimeProfile(Base):
+    __tablename__ = "day_time_profiles"
+    __table_args__ = (UniqueConstraint("name", name="uq_day_time_profiles_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class DayTimeProfileSlot(Base):
+    __tablename__ = "day_time_profile_slots"
+    __table_args__ = (UniqueConstraint("day_profile_id", "slot_number", name="uq_day_time_profile_slots_profile_slot"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    day_profile_id: Mapped[int] = mapped_column(ForeignKey("day_time_profiles.id"), nullable=False)
+    slot_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    time_start: Mapped[time] = mapped_column(nullable=False)
+    time_end: Mapped[time] = mapped_column(nullable=False)
+
+
+class WeekTimeProfile(Base):
+    __tablename__ = "week_time_profiles"
+    __table_args__ = (UniqueConstraint("name", name="uq_week_time_profiles_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class WeekTimeProfileDay(Base):
+    __tablename__ = "week_time_profile_days"
+    __table_args__ = (UniqueConstraint("week_profile_id", "weekday", name="uq_week_time_profile_days_profile_weekday"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    week_profile_id: Mapped[int] = mapped_column(ForeignKey("week_time_profiles.id"), nullable=False)
+    weekday: Mapped[int] = mapped_column(Integer, nullable=False)
+    day_profile_id: Mapped[int] = mapped_column(ForeignKey("day_time_profiles.id"), nullable=False)
 
 
 class Subject(Base):

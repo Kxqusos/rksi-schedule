@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from app.models import AuditLog, Lesson, Teacher, TeacherAbsence
 from app.schemas.teacher import TeacherAbsenceCreateRequest, TeacherAbsenceResponse, TeacherCreateRequest, TeacherResponse
 from app.services.auth.permissions import Actor
+from app.services.groups import clear_homeroom_teacher
 
 
 class DuplicateTeacherError(Exception):
@@ -77,6 +78,7 @@ def delete_teacher(session, teacher_id: int, actor: Actor) -> None:
     absences = session.scalars(select(TeacherAbsence).where(TeacherAbsence.teacher_id == teacher.id)).all()
     for absence in absences:
         session.delete(absence)
+    cleared_group_count = clear_homeroom_teacher(session, teacher.id)
 
     _audit(
         session,
@@ -88,6 +90,7 @@ def delete_teacher(session, teacher_id: int, actor: Actor) -> None:
             "name": teacher.source_name,
             "unassigned_lesson_count": len(lessons),
             "deleted_absence_count": len(absences),
+            "cleared_group_count": cleared_group_count,
         },
     )
     session.delete(teacher)
