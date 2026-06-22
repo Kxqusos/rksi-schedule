@@ -3,10 +3,10 @@ from __future__ import annotations
 from datetime import date as Date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy.orm import Session
 
-from app.core.config import get_database_url
-from app.db.session import build_session_factory
+from app.db.session import get_session
 from app.schemas.schedule_edit import (
     LessonCreateRequest,
     LessonMutationResponse,
@@ -26,54 +26,42 @@ router = APIRouter(prefix="/schedule", tags=["schedule"])
 
 
 @router.get("/public/latest-week", response_model=PublicScheduleWeekResponse)
-def get_public_latest_week(request: Request) -> dict:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        return get_latest_public_week(session).model_dump(mode="json")
+def get_public_latest_week(session: Annotated[Session, Depends(get_session)]) -> dict:
+    return get_latest_public_week(session).model_dump(mode="json")
 
 
 @router.get("/lessons", response_model=list[ScheduleSlotRoomResponse])
 def get_lessons(
-    request: Request,
     date: Date,
     time_slot: int,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> list[dict]:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        return [
-            lesson.model_dump(mode="json")
-            for lesson in list_lessons_by_slot(session, lesson_date=date, time_slot=time_slot)
-        ]
+    return [
+        lesson.model_dump(mode="json")
+        for lesson in list_lessons_by_slot(session, lesson_date=date, time_slot=time_slot)
+    ]
 
 
 @router.get("/problems", response_model=list[ScheduleProblemResponse])
 def get_problems(
-    request: Request,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> list[dict]:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        return [problem.model_dump(mode="json") for problem in list_schedule_problems(session)]
+    return [problem.model_dump(mode="json") for problem in list_schedule_problems(session)]
 
 
 @router.post("/lessons", response_model=LessonMutationResponse, status_code=status.HTTP_201_CREATED)
 def create_lesson(
-    request: Request,
     payload: LessonCreateRequest,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> dict:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        try:
-            with session.begin():
-                result = create_lesson_service(session, payload, actor)
-        except ConflictError as exc:
-            raise HTTPException(status_code=409, detail=exc.detail) from exc
+    try:
+        with session.begin():
+            result = create_lesson_service(session, payload, actor)
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     return {
         **result.lesson.model_dump(mode="json"),
         "warnings": [warning.model_dump(mode="json") for warning in result.warnings],
@@ -82,21 +70,18 @@ def create_lesson(
 
 @router.patch("/lessons/{lesson_id}", response_model=LessonMutationResponse)
 def update_lesson(
-    request: Request,
     lesson_id: int,
     payload: LessonUpdateRequest,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> dict:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        try:
-            with session.begin():
-                result = update_lesson_service(session, lesson_id, payload, actor)
-        except LessonNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="lesson not found") from exc
-        except ConflictError as exc:
-            raise HTTPException(status_code=409, detail=exc.detail) from exc
+    try:
+        with session.begin():
+            result = update_lesson_service(session, lesson_id, payload, actor)
+    except LessonNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="lesson not found") from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     return {
         **result.lesson.model_dump(mode="json"),
         "warnings": [warning.model_dump(mode="json") for warning in result.warnings],
@@ -105,16 +90,13 @@ def update_lesson(
 
 @router.delete("/lessons/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_lesson(
-    request: Request,
     lesson_id: int,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> Response:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        try:
-            with session.begin():
-                delete_lesson_service(session, lesson_id, actor)
-        except LessonNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="lesson not found") from exc
+    try:
+        with session.begin():
+            delete_lesson_service(session, lesson_id, actor)
+    except LessonNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="lesson not found") from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)

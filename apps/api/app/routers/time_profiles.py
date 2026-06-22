@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy.orm import Session
 
-from app.core.config import get_database_url
-from app.db.session import build_session_factory
+from app.db.session import get_session
 from app.schemas.time_profile import (
     DayTimeProfileCreateRequest,
     DayTimeProfileResponse,
@@ -35,135 +35,111 @@ router = APIRouter(prefix="/time-profiles", tags=["time-profiles"])
 
 @router.get("/day", response_model=list[DayTimeProfileResponse])
 def get_day_profiles(
-    request: Request,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> list[dict]:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        return [profile.model_dump(mode="json") for profile in list_day_profiles(session)]
+    return [profile.model_dump(mode="json") for profile in list_day_profiles(session)]
 
 
 @router.post("/day", response_model=DayTimeProfileResponse, status_code=status.HTTP_201_CREATED)
 def post_day_profile(
-    request: Request,
     payload: DayTimeProfileCreateRequest,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> dict:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        try:
-            with session.begin():
-                result = create_day_profile(session, payload, actor)
-        except DuplicateTimeProfileError as exc:
-            raise HTTPException(status_code=409, detail="day profile already exists") from exc
+    try:
+        with session.begin():
+            result = create_day_profile(session, payload, actor)
+    except DuplicateTimeProfileError as exc:
+        raise HTTPException(status_code=409, detail="day profile already exists") from exc
     return result.model_dump(mode="json")
 
 
 @router.patch("/day/{profile_id}", response_model=DayTimeProfileResponse)
 def patch_day_profile(
-    request: Request,
     profile_id: int,
     payload: DayTimeProfileUpdateRequest,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> dict:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        try:
-            with session.begin():
-                result = update_day_profile(session, profile_id, payload, actor)
-        except TimeProfileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="day profile not found") from exc
-        except DuplicateTimeProfileError as exc:
-            raise HTTPException(status_code=409, detail="day profile already exists") from exc
+    try:
+        with session.begin():
+            result = update_day_profile(session, profile_id, payload, actor)
+    except TimeProfileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="day profile not found") from exc
+    except DuplicateTimeProfileError as exc:
+        raise HTTPException(status_code=409, detail="day profile already exists") from exc
     return result.model_dump(mode="json")
 
 
 @router.delete("/day/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_day_profile(
-    request: Request,
     profile_id: int,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> Response:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        try:
-            with session.begin():
-                delete_day_profile(session, profile_id, actor)
-        except TimeProfileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="day profile not found") from exc
-        except TimeProfileInUseError as exc:
-            raise HTTPException(status_code=409, detail="day profile is used by week profile") from exc
+    try:
+        with session.begin():
+            delete_day_profile(session, profile_id, actor)
+    except TimeProfileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="day profile not found") from exc
+    except TimeProfileInUseError as exc:
+        raise HTTPException(status_code=409, detail="day profile is used by week profile") from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/week", response_model=list[WeekTimeProfileResponse])
 def get_week_profiles(
-    request: Request,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> list[dict]:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        return [profile.model_dump(mode="json") for profile in list_week_profiles(session)]
+    return [profile.model_dump(mode="json") for profile in list_week_profiles(session)]
 
 
 @router.post("/week", response_model=WeekTimeProfileResponse, status_code=status.HTTP_201_CREATED)
 def post_week_profile(
-    request: Request,
     payload: WeekTimeProfileCreateRequest,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> dict:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        try:
-            with session.begin():
-                result = create_week_profile(session, payload, actor)
-        except DuplicateTimeProfileError as exc:
-            raise HTTPException(status_code=409, detail="week profile already exists") from exc
-        except DayProfileReferenceError as exc:
-            raise HTTPException(status_code=404, detail="day profile not found") from exc
+    try:
+        with session.begin():
+            result = create_week_profile(session, payload, actor)
+    except DuplicateTimeProfileError as exc:
+        raise HTTPException(status_code=409, detail="week profile already exists") from exc
+    except DayProfileReferenceError as exc:
+        raise HTTPException(status_code=404, detail="day profile not found") from exc
     return result.model_dump(mode="json")
 
 
 @router.patch("/week/{profile_id}", response_model=WeekTimeProfileResponse)
 def patch_week_profile(
-    request: Request,
     profile_id: int,
     payload: WeekTimeProfileUpdateRequest,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> dict:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        try:
-            with session.begin():
-                result = update_week_profile(session, profile_id, payload, actor)
-        except TimeProfileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="week profile not found") from exc
-        except DuplicateTimeProfileError as exc:
-            raise HTTPException(status_code=409, detail="week profile already exists") from exc
-        except DayProfileReferenceError as exc:
-            raise HTTPException(status_code=404, detail="day profile not found") from exc
+    try:
+        with session.begin():
+            result = update_week_profile(session, profile_id, payload, actor)
+    except TimeProfileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="week profile not found") from exc
+    except DuplicateTimeProfileError as exc:
+        raise HTTPException(status_code=409, detail="week profile already exists") from exc
+    except DayProfileReferenceError as exc:
+        raise HTTPException(status_code=404, detail="day profile not found") from exc
     return result.model_dump(mode="json")
 
 
 @router.delete("/week/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_week_profile(
-    request: Request,
     profile_id: int,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> Response:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
-    with session_factory() as session:
-        try:
-            with session.begin():
-                delete_week_profile(session, profile_id, actor)
-        except TimeProfileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="week profile not found") from exc
+    try:
+        with session.begin():
+            delete_week_profile(session, profile_id, actor)
+    except TimeProfileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="week profile not found") from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
