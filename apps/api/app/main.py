@@ -21,8 +21,9 @@ from app.services.import_schedule import import_schedule_from_payload
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_engine(get_database_url())
-    bootstrap_admin(get_database_url())
+    database_url = getattr(app.state, "database_url", None) or get_database_url()
+    init_engine(database_url)
+    bootstrap_admin(database_url)
     yield
     dispose_engine()
 

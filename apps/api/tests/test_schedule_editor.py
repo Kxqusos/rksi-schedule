@@ -1,79 +1,65 @@
-from pathlib import Path
-from datetime import date, time
-import sqlite3
-
-from fastapi.testclient import TestClient
-from sqlalchemy import select
-
-from app.main import app
-from app.models import Group, Lesson, Room, ScheduleImport, Subject, Teacher
-from app.services.bootstrap import bootstrap_admin
-from app.services.import_schedule import import_schedule_from_json
-from conftest import migrate_database
-
-
 def test_operator_can_create_update_and_delete_lesson(tmp_path, monkeypatch):
     database_url = f"sqlite:///{tmp_path / 'editor.db'}"
     migrate_database(database_url)
     _seed_import(database_url)
     app.state.database_url = database_url
-    client = TestClient(app)
-    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
-    _seed_group_lessons(database_url, group_name="EDIT-1", slots=(1, 2), room_prefix="edit")
+    with TestClient(app) as client:
+        operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+        _seed_group_lessons(database_url, group_name="EDIT-1", slots=(1, 2), room_prefix="edit")
 
-    create_response = client.post(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={
-            "group_name": "EDIT-1",
-            "course": 0,
-            "faculty": "",
-            "subject": "Алгебра",
-            "teacher_name": "Иванова А.А.",
-            "teacher_id": "90001",
-            "teacher_post": "",
-            "room_name": "12/1",
-            "date": "2026-02-23",
-            "time_start": "11:30:00",
-            "time_end": "13:00:00",
-            "weekday": 1,
-            "week_number": 7,
-            "time_slot": 3,
-            "subgroup": 0,
-            "lesson_type": "",
-        },
-    )
+        create_response = client.post(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "group_name": "EDIT-1",
+                "course": 0,
+                "faculty": "",
+                "subject": "Алгебра",
+                "teacher_name": "Иванова А.А.",
+                "teacher_id": "90001",
+                "teacher_post": "",
+                "room_name": "12/1",
+                "date": "2026-02-23",
+                "time_start": "11:30:00",
+                "time_end": "13:00:00",
+                "weekday": 1,
+                "week_number": 7,
+                "time_slot": 3,
+                "subgroup": 0,
+                "lesson_type": "",
+            },
+        )
 
-    assert create_response.status_code == 201
-    created = create_response.json()
-    assert created["subject"] == "Алгебра"
-    lesson_id = created["id"]
+        assert create_response.status_code == 201
+        created = create_response.json()
+        assert created["subject"] == "Алгебра"
+        lesson_id = created["id"]
 
-    update_response = client.patch(
-        f"/schedule/lessons/{lesson_id}",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={"subject": "Геометрия"},
-    )
+        update_response = client.patch(
+            f"/schedule/lessons/{lesson_id}",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"subject": "Геометрия"},
+        )
 
-    assert update_response.status_code == 200
-    assert update_response.json()["subject"] == "Геометрия"
+        assert update_response.status_code == 200
+        assert update_response.json()["subject"] == "Геометрия"
 
-    delete_response = client.delete(
-        f"/schedule/lessons/{lesson_id}",
-        headers={"Authorization": f"Bearer {operator_token}"},
-    )
+        delete_response = client.delete(
+            f"/schedule/lessons/{lesson_id}",
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
 
-    assert delete_response.status_code == 204
+        assert delete_response.status_code == 204
 
-    conn = sqlite3.connect(database_url.removeprefix("sqlite:///"))
-    try:
-        audit_count = conn.execute("select count(*) from audit_log").fetchone()[0]
-        remaining = conn.execute("select count(*) from lessons where id = ?", (lesson_id,)).fetchone()[0]
-    finally:
-        conn.close()
+        conn = sqlite3.connect(database_url.removeprefix("sqlite:///"))
+        try:
+            audit_count = conn.execute("select count(*) from audit_log").fetchone()[0]
+            remaining = conn.execute("select count(*) from lessons where id = ?", (lesson_id,)).fetchone()[0]
+        finally:
+            conn.close()
 
-    assert audit_count >= 3
-    assert remaining == 0
+        assert audit_count >= 3
+        assert remaining == 0
 
 
 def test_request_without_role_is_rejected(tmp_path):
@@ -81,14 +67,14 @@ def test_request_without_role_is_rejected(tmp_path):
     migrate_database(database_url)
     _seed_import(database_url)
     app.state.database_url = database_url
-    client = TestClient(app)
+    with TestClient(app) as client:
 
-    response = client.patch(
-        "/schedule/lessons/1",
-        json={"subject": "Геометрия"},
-    )
+        response = client.patch(
+            "/schedule/lessons/1",
+            json={"subject": "Геометрия"},
+        )
 
-    assert response.status_code == 401
+        assert response.status_code == 401
 
 
 def test_public_latest_week_returns_latest_calendar_week_without_auth(tmp_path):
@@ -96,29 +82,29 @@ def test_public_latest_week_returns_latest_calendar_week_without_auth(tmp_path):
     migrate_database(database_url)
     _seed_public_week_lessons(database_url)
     app.state.database_url = database_url
-    client = TestClient(app)
+    with TestClient(app) as client:
 
-    response = client.get("/schedule/public/latest-week")
+        response = client.get("/schedule/public/latest-week")
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["week_start"] == "2026-03-02"
-    assert body["week_end"] == "2026-03-08"
-    assert body["week_number"] == 9
-    assert [day["date"] for day in body["days"]] == [
-        "2026-03-02",
-        "2026-03-03",
-        "2026-03-04",
-        "2026-03-05",
-        "2026-03-06",
-        "2026-03-07",
-        "2026-03-08",
-    ]
-    latest_lessons = [lesson for day in body["days"] for lesson in day["lessons"]]
-    assert len(latest_lessons) == 1
-    assert latest_lessons[0]["group_name"] == "PUBLIC-LATEST"
-    assert latest_lessons[0]["subject"] == "Latest subject"
-    assert latest_lessons[0]["teacher_name"] == "Latest Teacher"
+        assert response.status_code == 200
+        body = response.json()
+        assert body["week_start"] == "2026-03-02"
+        assert body["week_end"] == "2026-03-08"
+        assert body["week_number"] == 9
+        assert [day["date"] for day in body["days"]] == [
+            "2026-03-02",
+            "2026-03-03",
+            "2026-03-04",
+            "2026-03-05",
+            "2026-03-06",
+            "2026-03-07",
+            "2026-03-08",
+        ]
+        latest_lessons = [lesson for day in body["days"] for lesson in day["lessons"]]
+        assert len(latest_lessons) == 1
+        assert latest_lessons[0]["group_name"] == "PUBLIC-LATEST"
+        assert latest_lessons[0]["subject"] == "Latest subject"
+        assert latest_lessons[0]["teacher_name"] == "Latest Teacher"
 
 
 def test_operator_can_list_lessons_by_date_and_slot(tmp_path, monkeypatch):
@@ -127,25 +113,25 @@ def test_operator_can_list_lessons_by_date_and_slot(tmp_path, monkeypatch):
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
+    with TestClient(app) as client:
 
-    response = client.get(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        params={"date": "2026-02-23", "time_slot": 1},
-    )
+        response = client.get(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            params={"date": "2026-02-23", "time_slot": 1},
+        )
 
-    assert response.status_code == 200
-    rows = response.json()
-    assert len(rows) > 0
-    assert rows[0]["room_name"]
-    assert rows[0]["building"]
+        assert response.status_code == 200
+        rows = response.json()
+        assert len(rows) > 0
+        assert rows[0]["room_name"]
+        assert rows[0]["building"]
 
-    occupied_row = next(row for row in rows if row["lesson"] is not None)
-    assert occupied_row["lesson"]["date"] == "2026-02-23"
-    assert occupied_row["lesson"]["time_slot"] == 1
-    assert occupied_row["lesson"]["room_name"] == occupied_row["room_name"]
-    assert occupied_row["lesson"]["group_name"]
+        occupied_row = next(row for row in rows if row["lesson"] is not None)
+        assert occupied_row["lesson"]["date"] == "2026-02-23"
+        assert occupied_row["lesson"]["time_slot"] == 1
+        assert occupied_row["lesson"]["room_name"] == occupied_row["room_name"]
+        assert occupied_row["lesson"]["group_name"]
 
 
 def test_operator_can_create_lesson_in_empty_room_from_slot_grid(tmp_path, monkeypatch):
@@ -154,53 +140,53 @@ def test_operator_can_create_lesson_in_empty_room_from_slot_grid(tmp_path, monke
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_group_lessons(database_url, group_name="ТЕСТ-77", slots=(2, 3), room_prefix="empty")
+    with TestClient(app) as client:
+        _seed_group_lessons(database_url, group_name="ТЕСТ-77", slots=(2, 3), room_prefix="empty")
 
-    list_response = client.get(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        params={"date": "2026-02-23", "time_slot": 1},
-    )
-    assert list_response.status_code == 200
-    free_room = next(row for row in list_response.json() if row["lesson"] is None)
+        list_response = client.get(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            params={"date": "2026-02-23", "time_slot": 1},
+        )
+        assert list_response.status_code == 200
+        free_room = next(row for row in list_response.json() if row["lesson"] is None)
 
-    create_response = client.post(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={
-            "group_name": "ТЕСТ-77",
-            "course": 0,
-            "faculty": "",
-            "subject": "Тестовая замена",
-            "teacher_name": "Проверка П.П.",
-            "teacher_id": None,
-            "teacher_post": "",
-            "room_name": free_room["room_name"],
-            "date": "2026-02-23",
-            "time_start": "08:00:00",
-            "time_end": "09:30:00",
-            "weekday": 1,
-            "week_number": 7,
-            "time_slot": 1,
-            "subgroup": 0,
-            "lesson_type": "",
-        },
-    )
+        create_response = client.post(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "group_name": "ТЕСТ-77",
+                "course": 0,
+                "faculty": "",
+                "subject": "Тестовая замена",
+                "teacher_name": "Проверка П.П.",
+                "teacher_id": None,
+                "teacher_post": "",
+                "room_name": free_room["room_name"],
+                "date": "2026-02-23",
+                "time_start": "08:00:00",
+                "time_end": "09:30:00",
+                "weekday": 1,
+                "week_number": 7,
+                "time_slot": 1,
+                "subgroup": 0,
+                "lesson_type": "",
+            },
+        )
 
-    assert create_response.status_code == 201
-    created = create_response.json()
-    assert created["room_name"] == free_room["room_name"]
+        assert create_response.status_code == 201
+        created = create_response.json()
+        assert created["room_name"] == free_room["room_name"]
 
-    updated_list_response = client.get(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        params={"date": "2026-02-23", "time_slot": 1},
-    )
-    assert updated_list_response.status_code == 200
-    updated_room = next(row for row in updated_list_response.json() if row["room_name"] == free_room["room_name"])
-    assert updated_room["lesson"]["id"] == created["id"]
-    assert updated_room["lesson"]["subject"] == "Тестовая замена"
+        updated_list_response = client.get(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            params={"date": "2026-02-23", "time_slot": 1},
+        )
+        assert updated_list_response.status_code == 200
+        updated_room = next(row for row in updated_list_response.json() if row["room_name"] == free_room["room_name"])
+        assert updated_room["lesson"]["id"] == created["id"]
+        assert updated_room["lesson"]["subject"] == "Тестовая замена"
 
 
 def test_operator_can_swap_lesson_rooms_from_slot_grid(tmp_path, monkeypatch):
@@ -209,44 +195,44 @@ def test_operator_can_swap_lesson_rooms_from_slot_grid(tmp_path, monkeypatch):
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
+    with TestClient(app) as client:
 
-    list_response = client.get(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        params={"date": "2026-02-23", "time_slot": 1},
-    )
-    assert list_response.status_code == 200
-    occupied_rows = [
-        row
-        for row in list_response.json()
-        if row["lesson"] is not None and row["room_name"] != "Без кабинета"
-    ]
-    source_row = occupied_rows[0]
-    target_row = occupied_rows[1]
-    source_lesson_id = source_row["lesson"]["id"]
-    target_lesson_id = target_row["lesson"]["id"]
+        list_response = client.get(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            params={"date": "2026-02-23", "time_slot": 1},
+        )
+        assert list_response.status_code == 200
+        occupied_rows = [
+            row
+            for row in list_response.json()
+            if row["lesson"] is not None and row["room_name"] != "Без кабинета"
+        ]
+        source_row = occupied_rows[0]
+        target_row = occupied_rows[1]
+        source_lesson_id = source_row["lesson"]["id"]
+        target_lesson_id = target_row["lesson"]["id"]
 
-    update_response = client.patch(
-        f"/schedule/lessons/{source_lesson_id}",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={"room_name": target_row["room_name"]},
-    )
+        update_response = client.patch(
+            f"/schedule/lessons/{source_lesson_id}",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"room_name": target_row["room_name"]},
+        )
 
-    assert update_response.status_code == 200
-    assert update_response.json()["room_name"] == target_row["room_name"]
+        assert update_response.status_code == 200
+        assert update_response.json()["room_name"] == target_row["room_name"]
 
-    updated_list_response = client.get(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        params={"date": "2026-02-23", "time_slot": 1},
-    )
-    assert updated_list_response.status_code == 200
-    updated_rows = updated_list_response.json()
-    moved_source_row = next(row for row in updated_rows if row["lesson"] and row["lesson"]["id"] == source_lesson_id)
-    moved_target_row = next(row for row in updated_rows if row["lesson"] and row["lesson"]["id"] == target_lesson_id)
-    assert moved_source_row["room_name"] == target_row["room_name"]
-    assert moved_target_row["room_name"] == source_row["room_name"]
+        updated_list_response = client.get(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            params={"date": "2026-02-23", "time_slot": 1},
+        )
+        assert updated_list_response.status_code == 200
+        updated_rows = updated_list_response.json()
+        moved_source_row = next(row for row in updated_rows if row["lesson"] and row["lesson"]["id"] == source_lesson_id)
+        moved_target_row = next(row for row in updated_rows if row["lesson"] and row["lesson"]["id"] == target_lesson_id)
+        assert moved_source_row["room_name"] == target_row["room_name"]
+        assert moved_target_row["room_name"] == source_row["room_name"]
 
 
 def test_conflicting_update_is_rejected(tmp_path, monkeypatch):
@@ -255,15 +241,15 @@ def test_conflicting_update_is_rejected(tmp_path, monkeypatch):
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
+    with TestClient(app) as client:
 
-    response = client.patch(
-        "/schedule/lessons/2",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={"time_slot": 1, "time_start": "08:00:00", "time_end": "09:30:00"},
-    )
+        response = client.patch(
+            "/schedule/lessons/2",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"time_slot": 1, "time_start": "08:00:00", "time_end": "09:30:00"},
+        )
 
-    assert response.status_code == 409
+        assert response.status_code == 409
 
 
 def test_teacher_and_room_conflicts_are_returned_as_warnings(tmp_path, monkeypatch):
@@ -272,38 +258,38 @@ def test_teacher_and_room_conflicts_are_returned_as_warnings(tmp_path, monkeypat
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_group_lessons(database_url, group_name="WARN-1", slots=(2, 3), room_prefix="warn")
+    with TestClient(app) as client:
+        _seed_group_lessons(database_url, group_name="WARN-1", slots=(2, 3), room_prefix="warn")
 
-    response = client.post(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={
-            "group_name": "WARN-1",
-            "course": 0,
-            "faculty": "",
-            "subject": "Замена",
-            "teacher_name": "Мальцева И.Е.",
-            "teacher_id": "35147",
-            "teacher_post": "",
-            "room_name": "103/1",
-            "date": "2026-02-23",
-            "time_start": "08:00:00",
-            "time_end": "09:30:00",
-            "weekday": 1,
-            "week_number": 7,
-            "time_slot": 1,
-            "subgroup": 0,
-            "lesson_type": "",
-        },
-    )
+        response = client.post(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "group_name": "WARN-1",
+                "course": 0,
+                "faculty": "",
+                "subject": "Замена",
+                "teacher_name": "Мальцева И.Е.",
+                "teacher_id": "35147",
+                "teacher_post": "",
+                "room_name": "103/1",
+                "date": "2026-02-23",
+                "time_start": "08:00:00",
+                "time_end": "09:30:00",
+                "weekday": 1,
+                "week_number": 7,
+                "time_slot": 1,
+                "subgroup": 0,
+                "lesson_type": "",
+            },
+        )
 
-    assert response.status_code == 201
-    payload = response.json()
-    assert payload["subject"] == "Замена"
-    warning_codes = {warning["code"] for warning in payload["warnings"]}
-    assert "teacher_double_booked" in warning_codes
-    assert "room_double_booked" in warning_codes
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["subject"] == "Замена"
+        warning_codes = {warning["code"] for warning in payload["warnings"]}
+        assert "teacher_double_booked" in warning_codes
+        assert "room_double_booked" in warning_codes
 
 
 def test_absent_teacher_cannot_be_assigned_to_manual_lesson(tmp_path, monkeypatch):
@@ -312,48 +298,48 @@ def test_absent_teacher_cannot_be_assigned_to_manual_lesson(tmp_path, monkeypatc
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_group_lessons(database_url, group_name="ABSENT-BLOCK", slots=(2, 3), room_prefix="absent-block")
+    with TestClient(app) as client:
+        _seed_group_lessons(database_url, group_name="ABSENT-BLOCK", slots=(2, 3), room_prefix="absent-block")
 
-    teacher = _teacher_by_source_id(database_url, "ABSENT-BLOCK teacher")
-    absence_response = client.post(
-        f"/teachers/{teacher['id']}/absences",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={
-            "date": "2026-02-23",
-            "all_day": False,
-            "time_slot_start": 1,
-            "time_slot_end": 1,
-            "reason": "Командировка",
-        },
-    )
-    assert absence_response.status_code == 201
+        teacher = _teacher_by_source_id(database_url, "ABSENT-BLOCK teacher")
+        absence_response = client.post(
+            f"/teachers/{teacher['id']}/absences",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "date": "2026-02-23",
+                "all_day": False,
+                "time_slot_start": 1,
+                "time_slot_end": 1,
+                "reason": "Командировка",
+            },
+        )
+        assert absence_response.status_code == 201
 
-    response = client.post(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={
-            "group_name": "ABSENT-BLOCK",
-            "course": 0,
-            "faculty": "",
-            "subject": "Замена",
-            "teacher_name": "ABSENT-BLOCK teacher",
-            "teacher_id": "ABSENT-BLOCK teacher",
-            "teacher_post": "",
-            "room_name": "absent-block-1",
-            "date": "2026-02-23",
-            "time_start": "08:00:00",
-            "time_end": "09:30:00",
-            "weekday": 1,
-            "week_number": 7,
-            "time_slot": 1,
-            "subgroup": 0,
-            "lesson_type": "",
-        },
-    )
+        response = client.post(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "group_name": "ABSENT-BLOCK",
+                "course": 0,
+                "faculty": "",
+                "subject": "Замена",
+                "teacher_name": "ABSENT-BLOCK teacher",
+                "teacher_id": "ABSENT-BLOCK teacher",
+                "teacher_post": "",
+                "room_name": "absent-block-1",
+                "date": "2026-02-23",
+                "time_start": "08:00:00",
+                "time_end": "09:30:00",
+                "weekday": 1,
+                "week_number": 7,
+                "time_slot": 1,
+                "subgroup": 0,
+                "lesson_type": "",
+            },
+        )
 
-    assert response.status_code == 409
-    assert "teacher is absent in this slot" in response.json()["detail"]
+        assert response.status_code == 409
+        assert "teacher is absent in this slot" in response.json()["detail"]
 
 
 def test_excluded_room_cannot_be_assigned_to_manual_lesson(tmp_path, monkeypatch):
@@ -362,41 +348,41 @@ def test_excluded_room_cannot_be_assigned_to_manual_lesson(tmp_path, monkeypatch
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    rooms = client.get("/rooms", headers={"Authorization": f"Bearer {operator_token}"}).json()
-    room = next(room for room in rooms if room["name"] == "103/1")
-    exclude_response = client.post(
-        f"/rooms/{room['id']}/exclusion",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={"reason": "Ремонт"},
-    )
-    assert exclude_response.status_code == 200
+    with TestClient(app) as client:
+        rooms = client.get("/rooms", headers={"Authorization": f"Bearer {operator_token}"}).json()
+        room = next(room for room in rooms if room["name"] == "103/1")
+        exclude_response = client.post(
+            f"/rooms/{room['id']}/exclusion",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"reason": "Ремонт"},
+        )
+        assert exclude_response.status_code == 200
 
-    response = client.post(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={
-            "group_name": "ROOM-BLOCK",
-            "course": 0,
-            "faculty": "",
-            "subject": "Новая пара",
-            "teacher_name": "Room Block Teacher",
-            "teacher_id": "room-block-teacher",
-            "teacher_post": "",
-            "room_name": "103/1",
-            "date": "2026-02-23",
-            "time_start": "08:00:00",
-            "time_end": "09:30:00",
-            "weekday": 1,
-            "week_number": 7,
-            "time_slot": 1,
-            "subgroup": 0,
-            "lesson_type": "",
-        },
-    )
+        response = client.post(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "group_name": "ROOM-BLOCK",
+                "course": 0,
+                "faculty": "",
+                "subject": "Новая пара",
+                "teacher_name": "Room Block Teacher",
+                "teacher_id": "room-block-teacher",
+                "teacher_post": "",
+                "room_name": "103/1",
+                "date": "2026-02-23",
+                "time_start": "08:00:00",
+                "time_end": "09:30:00",
+                "weekday": 1,
+                "week_number": 7,
+                "time_slot": 1,
+                "subgroup": 0,
+                "lesson_type": "",
+            },
+        )
 
-    assert response.status_code == 409
-    assert "room is excluded from schedule" in response.json()["detail"]
+        assert response.status_code == 409
+        assert "room is excluded from schedule" in response.json()["detail"]
 
 
 def test_group_day_maximum_is_blocked(tmp_path, monkeypatch):
@@ -405,34 +391,34 @@ def test_group_day_maximum_is_blocked(tmp_path, monkeypatch):
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_group_lessons(database_url, group_name="DAY-MAX", slots=(1, 2, 3, 4), room_prefix="daymax")
+    with TestClient(app) as client:
+        _seed_group_lessons(database_url, group_name="DAY-MAX", slots=(1, 2, 3, 4), room_prefix="daymax")
 
-    response = client.post(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={
-            "group_name": "DAY-MAX",
-            "course": 0,
-            "faculty": "",
-            "subject": "Лишняя пара",
-            "teacher_name": "Свободный П.П.",
-            "teacher_id": None,
-            "teacher_post": "",
-            "room_name": "daymax-5",
-            "date": "2026-02-23",
-            "time_start": "15:00:00",
-            "time_end": "16:30:00",
-            "weekday": 1,
-            "week_number": 7,
-            "time_slot": 5,
-            "subgroup": 0,
-            "lesson_type": "",
-        },
-    )
+        response = client.post(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "group_name": "DAY-MAX",
+                "course": 0,
+                "faculty": "",
+                "subject": "Лишняя пара",
+                "teacher_name": "Свободный П.П.",
+                "teacher_id": None,
+                "teacher_post": "",
+                "room_name": "daymax-5",
+                "date": "2026-02-23",
+                "time_start": "15:00:00",
+                "time_end": "16:30:00",
+                "weekday": 1,
+                "week_number": 7,
+                "time_slot": 5,
+                "subgroup": 0,
+                "lesson_type": "",
+            },
+        )
 
-    assert response.status_code == 409
-    assert "group day lesson limit exceeded" in response.json()["detail"]
+        assert response.status_code == 409
+        assert "group day lesson limit exceeded" in response.json()["detail"]
 
 
 def test_linter_limit_messages_include_actual_count_and_overage(tmp_path, monkeypatch):
@@ -441,30 +427,30 @@ def test_linter_limit_messages_include_actual_count_and_overage(tmp_path, monkey
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_group_lessons(database_url, group_name="DETAIL-DAY", slots=(1, 2, 3, 4, 5), room_prefix="detail-day")
-    _seed_group_week_lessons(database_url, group_name="DETAIL-WEEK", lesson_count=19)
+    with TestClient(app) as client:
+        _seed_group_lessons(database_url, group_name="DETAIL-DAY", slots=(1, 2, 3, 4, 5), room_prefix="detail-day")
+        _seed_group_week_lessons(database_url, group_name="DETAIL-WEEK", lesson_count=19)
 
-    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+        response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
 
-    assert response.status_code == 200
-    problems = response.json()
-    day_problem = next(
-        problem
-        for problem in problems
-        if problem["code"] == "group_day_limit_exceeded" and "DETAIL-DAY" in (problem["group_name"] or "")
-    )
-    week_problem = next(
-        problem
-        for problem in problems
-        if problem["code"] == "group_week_limit_exceeded" and "DETAIL-WEEK" in (problem["group_name"] or "")
-    )
-    assert "максимум 4 пары" in day_problem["message"]
-    assert "стоит 5 пар" in day_problem["message"]
-    assert "превышение на 1 пару" in day_problem["message"]
-    assert "максимум 18 пар" in week_problem["message"]
-    assert "стоит 19 пар" in week_problem["message"]
-    assert "превышение на 1 пару" in week_problem["message"]
+        assert response.status_code == 200
+        problems = response.json()
+        day_problem = next(
+            problem
+            for problem in problems
+            if problem["code"] == "group_day_limit_exceeded" and "DETAIL-DAY" in (problem["group_name"] or "")
+        )
+        week_problem = next(
+            problem
+            for problem in problems
+            if problem["code"] == "group_week_limit_exceeded" and "DETAIL-WEEK" in (problem["group_name"] or "")
+        )
+        assert "максимум 4 пары" in day_problem["message"]
+        assert "стоит 5 пар" in day_problem["message"]
+        assert "превышение на 1 пару" in day_problem["message"]
+        assert "максимум 18 пар" in week_problem["message"]
+        assert "стоит 19 пар" in week_problem["message"]
+        assert "превышение на 1 пару" in week_problem["message"]
 
 
 def test_schedule_problems_aggregate_group_names_by_problem_class(tmp_path, monkeypatch):
@@ -473,27 +459,27 @@ def test_schedule_problems_aggregate_group_names_by_problem_class(tmp_path, monk
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_group_week_lessons(database_url, group_name="NOISE-WEEK-A", lesson_count=19)
-    _seed_group_week_lessons(database_url, group_name="NOISE-WEEK-B", lesson_count=20)
+    with TestClient(app) as client:
+        _seed_group_week_lessons(database_url, group_name="NOISE-WEEK-A", lesson_count=19)
+        _seed_group_week_lessons(database_url, group_name="NOISE-WEEK-B", lesson_count=20)
 
-    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+        response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
 
-    assert response.status_code == 200
-    week_problems = [
-        problem
-        for problem in response.json()
-        if problem["code"] == "group_week_limit_exceeded"
-        and "NOISE-WEEK-A" in (problem["group_name"] or "")
-    ]
-    assert len(week_problems) == 1
-    problem = week_problems[0]
-    assert "NOISE-WEEK-A" in problem["message"]
-    assert "стоит 19 пар" in problem["message"]
-    assert "NOISE-WEEK-B" in problem["message"]
-    assert "стоит 20 пар" in problem["message"]
-    assert "NOISE-WEEK-A" in problem["group_name"]
-    assert "NOISE-WEEK-B" in problem["group_name"]
+        assert response.status_code == 200
+        week_problems = [
+            problem
+            for problem in response.json()
+            if problem["code"] == "group_week_limit_exceeded"
+            and "NOISE-WEEK-A" in (problem["group_name"] or "")
+        ]
+        assert len(week_problems) == 1
+        problem = week_problems[0]
+        assert "NOISE-WEEK-A" in problem["message"]
+        assert "стоит 19 пар" in problem["message"]
+        assert "NOISE-WEEK-B" in problem["message"]
+        assert "стоит 20 пар" in problem["message"]
+        assert "NOISE-WEEK-A" in problem["group_name"]
+        assert "NOISE-WEEK-B" in problem["group_name"]
 
 
 def test_aggregated_group_problem_message_uses_one_line_per_group(tmp_path, monkeypatch):
@@ -502,22 +488,22 @@ def test_aggregated_group_problem_message_uses_one_line_per_group(tmp_path, monk
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_group_lessons(database_url, group_name="WINDOW-LINE-A", slots=(1, 3), room_prefix="window-line-a")
-    _seed_group_lessons(database_url, group_name="WINDOW-LINE-B", slots=(1, 3), room_prefix="window-line-b")
+    with TestClient(app) as client:
+        _seed_group_lessons(database_url, group_name="WINDOW-LINE-A", slots=(1, 3), room_prefix="window-line-a")
+        _seed_group_lessons(database_url, group_name="WINDOW-LINE-B", slots=(1, 3), room_prefix="window-line-b")
 
-    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+        response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
 
-    assert response.status_code == 200
-    window_problem = next(
-        problem
-        for problem in response.json()
-        if problem["code"] == "group_day_window" and "WINDOW-LINE-A" in (problem["group_name"] or "")
-    )
-    assert window_problem["message"].startswith("У перечисленных групп есть окно в расписании:\n")
-    assert "\nWINDOW-LINE-A: 23.02.2026, 2 пара" in window_problem["message"]
-    assert "\nWINDOW-LINE-B: 23.02.2026, 2 пара" in window_problem["message"]
-    assert window_problem["message"].count("есть окно в расписании") == 1
+        assert response.status_code == 200
+        window_problem = next(
+            problem
+            for problem in response.json()
+            if problem["code"] == "group_day_window" and "WINDOW-LINE-A" in (problem["group_name"] or "")
+        )
+        assert window_problem["message"].startswith("У перечисленных групп есть окно в расписании:\n")
+        assert "\nWINDOW-LINE-A: 23.02.2026, 2 пара" in window_problem["message"]
+        assert "\nWINDOW-LINE-B: 23.02.2026, 2 пара" in window_problem["message"]
+        assert window_problem["message"].count("есть окно в расписании") == 1
 
 
 def test_subgroup_lessons_count_as_one_pair_for_group_limits(tmp_path, monkeypatch):
@@ -526,22 +512,22 @@ def test_subgroup_lessons_count_as_one_pair_for_group_limits(tmp_path, monkeypat
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_subgroup_day_limit_lessons(database_url)
-    _seed_subgroup_week_limit_lessons(database_url)
+    with TestClient(app) as client:
+        _seed_subgroup_day_limit_lessons(database_url)
+        _seed_subgroup_week_limit_lessons(database_url)
 
-    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+        response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
 
-    assert response.status_code == 200
-    problems = response.json()
-    assert not any(
-        problem["code"] == "group_day_limit_exceeded" and problem["group_name"] == "SUBGROUP-DAY"
-        for problem in problems
-    )
-    assert not any(
-        problem["code"] == "group_week_limit_exceeded" and problem["group_name"] == "SUBGROUP-WEEK"
-        for problem in problems
-    )
+        assert response.status_code == 200
+        problems = response.json()
+        assert not any(
+            problem["code"] == "group_day_limit_exceeded" and problem["group_name"] == "SUBGROUP-DAY"
+            for problem in problems
+        )
+        assert not any(
+            problem["code"] == "group_week_limit_exceeded" and problem["group_name"] == "SUBGROUP-WEEK"
+            for problem in problems
+        )
 
 
 def test_additional_lessons_do_not_count_toward_group_week_limit(tmp_path, monkeypatch):
@@ -550,18 +536,18 @@ def test_additional_lessons_do_not_count_toward_group_week_limit(tmp_path, monke
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_group_week_lessons(database_url, group_name="ADDITIONAL-WEEK", lesson_count=18)
-    _seed_additional_lesson(database_url, group_name="ADDITIONAL-WEEK")
+    with TestClient(app) as client:
+        _seed_group_week_lessons(database_url, group_name="ADDITIONAL-WEEK", lesson_count=18)
+        _seed_additional_lesson(database_url, group_name="ADDITIONAL-WEEK")
 
-    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+        response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
 
-    assert response.status_code == 200
-    problems = response.json()
-    assert not any(
-        problem["code"] == "group_week_limit_exceeded" and problem["group_name"] == "ADDITIONAL-WEEK"
-        for problem in problems
-    )
+        assert response.status_code == 200
+        problems = response.json()
+        assert not any(
+            problem["code"] == "group_week_limit_exceeded" and problem["group_name"] == "ADDITIONAL-WEEK"
+            for problem in problems
+        )
 
 
 def test_class_hour_does_not_count_toward_group_pair_limits(tmp_path, monkeypatch):
@@ -570,21 +556,21 @@ def test_class_hour_does_not_count_toward_group_pair_limits(tmp_path, monkeypatc
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_group_with_class_hour_over_raw_limit(database_url)
+    with TestClient(app) as client:
+        _seed_group_with_class_hour_over_raw_limit(database_url)
 
-    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+        response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
 
-    assert response.status_code == 200
-    problems = response.json()
-    assert not any(
-        problem["code"] == "group_week_limit_exceeded" and "CLASS-HOUR-LIMIT" in (problem["group_name"] or "")
-        for problem in problems
-    )
-    assert not any(
-        problem["code"] == "group_day_limit_exceeded" and "CLASS-HOUR-LIMIT" in (problem["group_name"] or "")
-        for problem in problems
-    )
+        assert response.status_code == 200
+        problems = response.json()
+        assert not any(
+            problem["code"] == "group_week_limit_exceeded" and "CLASS-HOUR-LIMIT" in (problem["group_name"] or "")
+            for problem in problems
+        )
+        assert not any(
+            problem["code"] == "group_day_limit_exceeded" and "CLASS-HOUR-LIMIT" in (problem["group_name"] or "")
+            for problem in problems
+        )
 
 
 def test_group_window_is_blocked(tmp_path, monkeypatch):
@@ -593,34 +579,34 @@ def test_group_window_is_blocked(tmp_path, monkeypatch):
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_group_lessons(database_url, group_name="WINDOW-1", slots=(1,), room_prefix="window")
+    with TestClient(app) as client:
+        _seed_group_lessons(database_url, group_name="WINDOW-1", slots=(1,), room_prefix="window")
 
-    response = client.post(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={
-            "group_name": "WINDOW-1",
-            "course": 0,
-            "faculty": "",
-            "subject": "Пара с окном",
-            "teacher_name": "Свободный О.О.",
-            "teacher_id": None,
-            "teacher_post": "",
-            "room_name": "window-3",
-            "date": "2026-02-23",
-            "time_start": "11:30:00",
-            "time_end": "13:00:00",
-            "weekday": 1,
-            "week_number": 7,
-            "time_slot": 3,
-            "subgroup": 0,
-            "lesson_type": "",
-        },
-    )
+        response = client.post(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "group_name": "WINDOW-1",
+                "course": 0,
+                "faculty": "",
+                "subject": "Пара с окном",
+                "teacher_name": "Свободный О.О.",
+                "teacher_id": None,
+                "teacher_post": "",
+                "room_name": "window-3",
+                "date": "2026-02-23",
+                "time_start": "11:30:00",
+                "time_end": "13:00:00",
+                "weekday": 1,
+                "week_number": 7,
+                "time_slot": 3,
+                "subgroup": 0,
+                "lesson_type": "",
+            },
+        )
 
-    assert response.status_code == 409
-    assert "group day schedule has a window" in response.json()["detail"]
+        assert response.status_code == 409
+        assert "group day schedule has a window" in response.json()["detail"]
 
 
 def test_schedule_problems_linter_lists_warnings(tmp_path, monkeypatch):
@@ -629,14 +615,14 @@ def test_schedule_problems_linter_lists_warnings(tmp_path, monkeypatch):
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
+    with TestClient(app) as client:
 
-    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+        response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
 
-    assert response.status_code == 200
-    problems = response.json()
-    assert any(problem["severity"] == "warning" for problem in problems)
-    assert any(problem["code"] == "teacher_double_booked" for problem in problems)
+        assert response.status_code == 200
+        problems = response.json()
+        assert any(problem["severity"] == "warning" for problem in problems)
+        assert any(problem["code"] == "teacher_double_booked" for problem in problems)
 
 
 def test_schedule_problems_linter_lists_absent_teacher_lessons(tmp_path, monkeypatch):
@@ -645,26 +631,26 @@ def test_schedule_problems_linter_lists_absent_teacher_lessons(tmp_path, monkeyp
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_group_lessons(database_url, group_name="ABSENT-LINT", slots=(1, 2), room_prefix="absent-lint")
+    with TestClient(app) as client:
+        _seed_group_lessons(database_url, group_name="ABSENT-LINT", slots=(1, 2), room_prefix="absent-lint")
 
-    teacher = _teacher_by_source_id(database_url, "ABSENT-LINT teacher")
-    absence_response = client.post(
-        f"/teachers/{teacher['id']}/absences",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={"date": "2026-02-23", "all_day": True, "reason": "Отпуск"},
-    )
-    assert absence_response.status_code == 201
+        teacher = _teacher_by_source_id(database_url, "ABSENT-LINT teacher")
+        absence_response = client.post(
+            f"/teachers/{teacher['id']}/absences",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"date": "2026-02-23", "all_day": True, "reason": "Отпуск"},
+        )
+        assert absence_response.status_code == 201
 
-    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+        response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
 
-    assert response.status_code == 200
-    problems = response.json()
-    absent_problem = next(problem for problem in problems if problem["code"] == "absent_teacher_scheduled")
-    assert absent_problem["severity"] == "error"
-    assert absent_problem["teacher_name"] == "ABSENT-LINT teacher"
-    assert "отсутствует" in absent_problem["message"]
-    assert "Отпуск" in absent_problem["message"]
+        assert response.status_code == 200
+        problems = response.json()
+        absent_problem = next(problem for problem in problems if problem["code"] == "absent_teacher_scheduled")
+        assert absent_problem["severity"] == "error"
+        assert absent_problem["teacher_name"] == "ABSENT-LINT teacher"
+        assert "отсутствует" in absent_problem["message"]
+        assert "Отпуск" in absent_problem["message"]
 
 
 def test_schedule_problems_linter_lists_excluded_room_lessons(tmp_path, monkeypatch):
@@ -673,26 +659,26 @@ def test_schedule_problems_linter_lists_excluded_room_lessons(tmp_path, monkeypa
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    rooms = client.get("/rooms", headers={"Authorization": f"Bearer {operator_token}"}).json()
-    occupied_room = next(room for room in rooms if room["lesson_count"] > 0)
+    with TestClient(app) as client:
+        rooms = client.get("/rooms", headers={"Authorization": f"Bearer {operator_token}"}).json()
+        occupied_room = next(room for room in rooms if room["lesson_count"] > 0)
 
-    exclude_response = client.post(
-        f"/rooms/{occupied_room['id']}/exclusion",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={"reason": "Ремонт"},
-    )
-    assert exclude_response.status_code == 200
+        exclude_response = client.post(
+            f"/rooms/{occupied_room['id']}/exclusion",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"reason": "Ремонт"},
+        )
+        assert exclude_response.status_code == 200
 
-    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+        response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
 
-    assert response.status_code == 200
-    problems = response.json()
-    excluded_problem = next(problem for problem in problems if problem["code"] == "excluded_room_scheduled")
-    assert excluded_problem["severity"] == "error"
-    assert excluded_problem["room_name"] == occupied_room["name"]
-    assert "исключён" in excluded_problem["message"]
-    assert "Ремонт" in excluded_problem["message"]
+        assert response.status_code == 200
+        problems = response.json()
+        excluded_problem = next(problem for problem in problems if problem["code"] == "excluded_room_scheduled")
+        assert excluded_problem["severity"] == "error"
+        assert excluded_problem["room_name"] == occupied_room["name"]
+        assert "исключён" in excluded_problem["message"]
+        assert "Ремонт" in excluded_problem["message"]
 
 
 def test_schedule_lesson_rows_include_absence_and_room_exclusion_reasons(tmp_path, monkeypatch):
@@ -701,38 +687,38 @@ def test_schedule_lesson_rows_include_absence_and_room_exclusion_reasons(tmp_pat
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_group_lessons(database_url, group_name="ROW-REASON", slots=(1,), room_prefix="row-reason")
+    with TestClient(app) as client:
+        _seed_group_lessons(database_url, group_name="ROW-REASON", slots=(1,), room_prefix="row-reason")
 
-    teacher = _teacher_by_source_id(database_url, "ROW-REASON teacher")
-    absence_response = client.post(
-        f"/teachers/{teacher['id']}/absences",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={"date": "2026-02-23", "all_day": True, "reason": "Больничный"},
-    )
-    assert absence_response.status_code == 201
-    rooms = client.get("/rooms", headers={"Authorization": f"Bearer {operator_token}"}).json()
-    room = next(room for room in rooms if room["name"] == "row-reason-1")
-    exclusion_response = client.post(
-        f"/rooms/{room['id']}/exclusion",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={"reason": "Ремонт"},
-    )
-    assert exclusion_response.status_code == 200
+        teacher = _teacher_by_source_id(database_url, "ROW-REASON teacher")
+        absence_response = client.post(
+            f"/teachers/{teacher['id']}/absences",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"date": "2026-02-23", "all_day": True, "reason": "Больничный"},
+        )
+        assert absence_response.status_code == 201
+        rooms = client.get("/rooms", headers={"Authorization": f"Bearer {operator_token}"}).json()
+        room = next(room for room in rooms if room["name"] == "row-reason-1")
+        exclusion_response = client.post(
+            f"/rooms/{room['id']}/exclusion",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"reason": "Ремонт"},
+        )
+        assert exclusion_response.status_code == 200
 
-    response = client.get(
-        "/schedule/lessons",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        params={"date": "2026-02-23", "time_slot": 1},
-    )
+        response = client.get(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            params={"date": "2026-02-23", "time_slot": 1},
+        )
 
-    assert response.status_code == 200
-    rows = response.json()
-    row = next(row for row in rows if row["room_name"] == "row-reason-1")
-    assert row["room_is_excluded"] is True
-    assert row["room_exclusion_reason"] == "Ремонт"
-    assert row["lesson"]["teacher_is_absent"] is True
-    assert row["lesson"]["teacher_absence_reason"] == "Больничный"
+        assert response.status_code == 200
+        rows = response.json()
+        row = next(row for row in rows if row["room_name"] == "row-reason-1")
+        assert row["room_is_excluded"] is True
+        assert row["room_exclusion_reason"] == "Ремонт"
+        assert row["lesson"]["teacher_is_absent"] is True
+        assert row["lesson"]["teacher_absence_reason"] == "Больничный"
 
 
 def test_foreign_language_split_subgroups_are_not_multiple_teacher_error(tmp_path, monkeypatch):
@@ -741,17 +727,17 @@ def test_foreign_language_split_subgroups_are_not_multiple_teacher_error(tmp_pat
     _seed_import(database_url)
     operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
     app.state.database_url = database_url
-    client = TestClient(app)
-    _seed_foreign_language_split(database_url)
+    with TestClient(app) as client:
+        _seed_foreign_language_split(database_url)
 
-    response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
+        response = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"})
 
-    assert response.status_code == 200
-    problems = response.json()
-    assert not any(
-        problem["code"] == "group_slot_multiple_teachers" and problem["group_name"] == "LANG-SPLIT"
-        for problem in problems
-    )
+        assert response.status_code == 200
+        problems = response.json()
+        assert not any(
+            problem["code"] == "group_slot_multiple_teachers" and problem["group_name"] == "LANG-SPLIT"
+            for problem in problems
+        )
 
 
 def _seed_import(database_url: str) -> None:
@@ -1156,30 +1142,30 @@ def _bootstrap_and_get_operator_token(database_url: str, monkeypatch) -> str:
     monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
     app.state.database_url = database_url
     bootstrap_admin(database_url)
-    client = TestClient(app)
-    admin_token = client.post(
-        "/auth/login",
-        json={"username": "root", "password": "root-password"},
-    ).json()["access_token"]
-    create_response = client.post(
-        "/users",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json={
-            "username": "operator-1",
-            "display_name": "Оператор 1",
-            "password": "operator-password",
-            "role": "operator",
-        },
-    )
-    if create_response.status_code != 201:
+    with TestClient(app) as client:
+        admin_token = client.post(
+            "/auth/login",
+            json={"username": "root", "password": "root-password"},
+        ).json()["access_token"]
         create_response = client.post(
+            "/users",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={
+                "username": "operator-1",
+                "display_name": "Оператор 1",
+                "password": "operator-password",
+                "role": "operator",
+            },
+        )
+        if create_response.status_code != 201:
+            create_response = client.post(
+                "/auth/login",
+                json={"username": "operator-1", "password": "operator-password"},
+            )
+            return create_response.json()["access_token"]
+
+        login_response = client.post(
             "/auth/login",
             json={"username": "operator-1", "password": "operator-password"},
         )
-        return create_response.json()["access_token"]
-
-    login_response = client.post(
-        "/auth/login",
-        json={"username": "operator-1", "password": "operator-password"},
-    )
-    return login_response.json()["access_token"]
+        return login_response.json()["access_token"]
