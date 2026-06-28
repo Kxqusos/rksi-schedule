@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_bootstrap_admin_config
-from app.db.engine import get_session_factory
+from app.db.engine import ensure_engine
 from app.models import Role, User
 from app.services.auth.security import hash_password
 
@@ -14,7 +14,7 @@ def bootstrap_admin(database_url: str) -> None:
     if config is None:
         return
 
-    session_factory = get_session_factory()
+    session_factory = ensure_engine(database_url)
     try:
         with session_factory() as session:
             with session.begin():

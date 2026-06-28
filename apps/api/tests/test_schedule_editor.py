@@ -1,3 +1,17 @@
+from pathlib import Path
+from datetime import date, time
+import sqlite3
+
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+from app.main import app
+from app.models import Group, Lesson, Room, ScheduleImport, Subject, Teacher
+from app.services.bootstrap import bootstrap_admin
+from app.services.import_schedule import import_schedule_from_json
+from conftest import migrate_database
+
+
 def test_operator_can_create_update_and_delete_lesson(tmp_path, monkeypatch):
     database_url = f"sqlite:///{tmp_path / 'editor.db'}"
     migrate_database(database_url)
