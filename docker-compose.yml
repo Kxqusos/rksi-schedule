@@ -16,6 +16,12 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
   api:
     build:
       context: .
@@ -25,6 +31,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg://schedule_rks:schedule_rks@postgres:5432/schedule_rks
+      REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: http://localhost:3003,http://127.0.0.1:3003
       PYTHONPATH: /workspace/apps/api
       WATCHFILES_FORCE_POLLING: "true"
@@ -33,6 +40,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
       - ./apps/api:/workspace/apps/api
       - ./7.json:/workspace/7.json:ro
