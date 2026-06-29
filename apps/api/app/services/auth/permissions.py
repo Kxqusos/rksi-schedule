@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import Header, HTTPException, Request
 
 from app.core.config import get_database_url
-from app.db.session import build_session_factory
+from app.db.engine import ensure_engine
 from app.services.auth.security import InvalidTokenError, decode_access_token
 
 
@@ -54,7 +54,7 @@ def _resolve_actor(request: Request, *, authorization: str | None) -> Actor:
         raise HTTPException(status_code=401, detail="invalid or expired token") from exc
 
     database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    _engine, session_factory = build_session_factory(database_url)
+    session_factory = ensure_engine(database_url)
     from app.services.users import get_user_by_id
 
     with session_factory() as session:

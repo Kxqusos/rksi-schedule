@@ -5,7 +5,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import get_cors_origins, get_database_url
+from app.core.cache import init_cache
+from app.core.config import get_cors_origins, get_database_url, get_redis_url
+from app.db.engine import dispose_engine, init_engine
 from app.routers.auth import router as auth_router
 from app.routers.groups import router as groups_router
 from app.routers.rooms import router as rooms_router
@@ -20,8 +22,12 @@ from app.services.import_schedule import import_schedule_from_payload
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    bootstrap_admin(get_database_url())
+    database_url = getattr(app.state, "database_url", None) or get_database_url()
+    init_engine(database_url)
+    bootstrap_admin(database_url)
+    init_cache(get_redis_url())
     yield
+    dispose_engine()
 
 
 app = FastAPI(title="Schedule RKS API", lifespan=lifespan)

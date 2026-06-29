@@ -45,6 +45,11 @@ def get_cors_origins() -> list[str]:
     return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
 
 
+def get_redis_url() -> str | None:
+    load_env_file()
+    return os.getenv("REDIS_URL") or None
+
+
 def get_auth_secret() -> str:
     load_env_file()
     return os.getenv("AUTH_SECRET", "schedule-rks-dev-secret")
