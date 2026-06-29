@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
+from app.core.cache import get_cache
 from app.db.session import get_session
 from app.schemas.schedule_edit import (
     LessonCreateRequest,
@@ -27,7 +28,11 @@ router = APIRouter(prefix="/schedule", tags=["schedule"])
 
 @router.get("/public/latest-week", response_model=PublicScheduleWeekResponse)
 def get_public_latest_week(session: Annotated[Session, Depends(get_session)]) -> dict:
-    return get_latest_public_week(session).model_dump(mode="json")
+    cache = get_cache()
+    return cache.get_or_set(
+        "latest", 0, 0,
+        lambda: get_latest_public_week(session).model_dump(mode="json"),
+    )
 
 
 @router.get("/lessons", response_model=list[ScheduleSlotRoomResponse])
@@ -62,6 +67,7 @@ def create_lesson(
             result = create_lesson_service(session, payload, actor)
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
+    get_cache().invalidate_all()
     return {
         **result.lesson.model_dump(mode="json"),
         "warnings": [warning.model_dump(mode="json") for warning in result.warnings],
@@ -82,6 +88,7 @@ def update_lesson(
         raise HTTPException(status_code=404, detail="lesson not found") from exc
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
+    get_cache().invalidate_all()
     return {
         **result.lesson.model_dump(mode="json"),
         "warnings": [warning.model_dump(mode="json") for warning in result.warnings],
@@ -99,4 +106,5 @@ def delete_lesson(
             delete_lesson_service(session, lesson_id, actor)
     except LessonNotFoundError as exc:
         raise HTTPException(status_code=404, detail="lesson not found") from exc
+    get_cache().invalidate_all()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

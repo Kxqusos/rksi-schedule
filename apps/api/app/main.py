@@ -5,7 +5,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import get_cors_origins, get_database_url
+from app.core.cache import init_cache
+from app.core.config import get_cors_origins, get_database_url, get_redis_url
 from app.db.engine import dispose_engine, init_engine
 from app.routers.auth import router as auth_router
 from app.routers.groups import router as groups_router
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
     database_url = getattr(app.state, "database_url", None) or get_database_url()
     init_engine(database_url)
     bootstrap_admin(database_url)
+    init_cache(get_redis_url())
     yield
     dispose_engine()
 
