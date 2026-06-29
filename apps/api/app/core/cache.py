@@ -42,7 +42,7 @@ class ScheduleCache:
         if cached is not None:
             return json.loads(cached)
         value = factory()
-        self._client.setex(key, self._ttl, json.dumps(value, default=str))
+        self._client.set(key, json.dumps(value, default=str), ex=self._ttl)
         return value
 
     def invalidate(self, entity_type: str, entity_id: int, week: int) -> None:
