@@ -15,7 +15,7 @@ from app.schemas.schedule_edit import (
     ScheduleSlotRoomResponse,
 )
 from app.services.auth.permissions import Actor
-from app.services.schedule_editor import repository
+from app.services.schedule_editor import mappers, repository
 from app.services.teachers import teacher_absence_for_slot
 
 
@@ -199,7 +199,7 @@ def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleS
             unplaced_lessons.append(lesson_response)
 
     rows: list[ScheduleSlotRoomResponse] = [
-        ScheduleSlotRoomResponse(
+        mappers.schedule_slot_room_response(
             room_name=room.source_name,
             building=_room_building(room.source_name),
             room_is_excluded=room.is_excluded,
@@ -218,7 +218,7 @@ def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleS
     for lesson in [*unplaced_lessons, *hidden_room_lessons]:
         room = repository.get_room_by_name(session, lesson.room_name) if lesson.room_name else None
         rows.append(
-            ScheduleSlotRoomResponse(
+            mappers.schedule_slot_room_response(
                 room_name=lesson.room_name or "Без кабинета",
                 building=_room_building(lesson.room_name or ""),
                 room_is_excluded=room.is_excluded if room else False,
@@ -243,12 +243,12 @@ def get_latest_public_week(session) -> PublicScheduleWeekResponse:
     for lesson in lessons:
         lessons_by_date.setdefault(lesson.lesson_date, []).append(_lesson_response(session, lesson))
 
-    return PublicScheduleWeekResponse(
+    return mappers.public_schedule_week_response(
         week_start=week_start,
         week_end=week_end,
         week_number=latest_week_number,
         days=[
-            PublicScheduleDayResponse(
+            mappers.public_schedule_day_response(
                 date=day_date,
                 weekday=index + 1,
                 lessons=lessons_by_date.get(day_date, []),
@@ -310,7 +310,7 @@ def _aggregate_group_problems(problems: list[ScheduleProblemResponse]) -> list[S
         for problem in code_problems:
             lesson_ids.extend(problem.lesson_ids)
         result.append(
-            ScheduleProblemResponse(
+            mappers.problem_to_response(
                 severity=code_problems[0].severity,
                 code=code,
                 message=_aggregated_group_problem_message(code_problems),
@@ -489,7 +489,7 @@ def _group_week_errors(session, group_id: int, week_number: int) -> list[Schedul
     group = repository.get_group_by_id(session, group_id)
     overage = actual_count - MAX_GROUP_WEEK_LESSONS
     return [
-        ScheduleProblemResponse(
+        mappers.problem_to_response(
             severity="error",
             code="group_week_limit_exceeded",
             message=(
@@ -520,7 +520,7 @@ def _group_day_errors(session, group_id: int, lesson_date) -> list[ScheduleProbl
     if actual_count > MAX_GROUP_DAY_LESSONS:
         overage = actual_count - MAX_GROUP_DAY_LESSONS
         problems.append(
-            ScheduleProblemResponse(
+            mappers.problem_to_response(
                 severity="error",
                 code="group_day_limit_exceeded",
                 message=(
@@ -536,7 +536,7 @@ def _group_day_errors(session, group_id: int, lesson_date) -> list[ScheduleProbl
         )
     if actual_count < MIN_GROUP_DAY_LESSONS:
         problems.append(
-            ScheduleProblemResponse(
+            mappers.problem_to_response(
                 severity="error",
                 code="group_day_minimum_not_met",
                 message=f"У группы {group_name or ''} меньше {MIN_GROUP_DAY_LESSONS} пар в день.",
@@ -551,7 +551,7 @@ def _group_day_errors(session, group_id: int, lesson_date) -> list[ScheduleProbl
         missing_slots = [slot for slot in range(slots[0], slots[-1] + 1) if slot not in slots]
         if missing_slots:
             problems.append(
-                ScheduleProblemResponse(
+                mappers.problem_to_response(
                     severity="error",
                     code="group_day_window",
                     message=f"У группы {group_name or ''} есть окно в расписании.",
@@ -624,7 +624,7 @@ def _group_slot_teacher_errors(session, group_id: int, lesson_date) -> list[Sche
         if _is_foreign_language_subgroup_split(session, slot_lessons):
             continue
         problems.append(
-            ScheduleProblemResponse(
+            mappers.problem_to_response(
                 severity="error",
                 code="group_slot_multiple_teachers",
                 message=f"У группы {group.source_name if group else ''} два преподавателя на одну пару.",
@@ -687,7 +687,7 @@ def _absent_teacher_errors(session) -> list[ScheduleProblemResponse]:
         teacher = repository.get_teacher_by_id(session, lesson.teacher_id)
         reason_suffix = f" Причина: {absence.reason}." if absence.reason else ""
         problems.append(
-            ScheduleProblemResponse(
+            mappers.problem_to_response(
                 severity="error",
                 code="absent_teacher_scheduled",
                 message=(
@@ -714,7 +714,7 @@ def _excluded_room_errors(session) -> list[ScheduleProblemResponse]:
             continue
         reason_suffix = f" Причина: {room.exclusion_reason}." if room.exclusion_reason else ""
         problems.append(
-            ScheduleProblemResponse(
+            mappers.problem_to_response(
                 severity="error",
                 code="excluded_room_scheduled",
                 message=(
@@ -743,7 +743,7 @@ def _double_booked_teacher_warnings(session, *, lesson_date=None, time_slot: int
             continue
         teacher = repository.get_teacher_by_id(session, teacher_id)
         warnings.append(
-            ScheduleProblemResponse(
+            mappers.problem_to_response(
                 severity="warning",
                 code="teacher_double_booked",
                 message=f"Преподаватель {teacher.source_name if teacher else ''} стоит у двух групп в одну пару.",
@@ -769,7 +769,7 @@ def _double_booked_room_warnings(session, *, lesson_date=None, time_slot: int | 
             continue
         room = repository.get_room_by_id(session, room_id)
         warnings.append(
-            ScheduleProblemResponse(
+            mappers.problem_to_response(
                 severity="warning",
                 code="room_double_booked",
                 message=f"Кабинет {room.source_name if room else ''} стоит у двух групп в одну пару.",
@@ -849,22 +849,13 @@ def _lesson_response(session, lesson: Lesson) -> LessonResponse:
         if lesson.teacher_id
         else None
     )
-    return LessonResponse(
-        id=lesson.id,
+    return mappers.lesson_to_response(
+        lesson,
         group_name=group.source_name if group else "",
-        subject=subject.source_name if subject else "",
+        subject_name=subject.source_name if subject else "",
         teacher_name=teacher.source_name if teacher else None,
-        teacher_is_absent=teacher_absence is not None,
-        teacher_absence_reason=teacher_absence.reason if teacher_absence else "",
+        teacher_absence=teacher_absence,
         room_name=room.source_name if room else None,
-        date=lesson.lesson_date,
-        time_start=lesson.start_time,
-        time_end=lesson.end_time,
-        weekday=lesson.weekday,
-        week_number=lesson.week_number,
-        time_slot=lesson.time_slot,
-        subgroup=lesson.subgroup,
-        lesson_type=lesson.lesson_type,
     )
 
 
