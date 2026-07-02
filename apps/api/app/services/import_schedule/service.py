@@ -6,10 +6,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
-
 from app.db.engine import ensure_engine
 from app.models import Group, Lesson, Room, ScheduleImport, Subject, Teacher
+from app.services.import_schedule import repository
 
 
 MONDAY_WEEKDAY = 1
@@ -72,12 +71,12 @@ def import_schedule_from_payload(payload: Any, database_url: str, source_path: s
                                 empty_day_count += 1
                             for lesson_payload in lessons:
                                 lesson_source_id = str(lesson_payload["Lesson_ID_Num"])
-                                if session.scalar(select(Lesson).where(Lesson.source_lesson_id == lesson_source_id)):
+                                if repository.find_lesson_by_source_id(session, lesson_source_id):
                                     continue
                                 subject = _get_or_create_subject(session, lesson_payload.get("subject", ""))
                                 teacher = _get_or_create_teacher(session, lesson_payload)
                                 if subject.source_name == CLASS_HOUR_SUBJECT and group.homeroom_teacher_id is not None:
-                                    teacher = session.get(Teacher, group.homeroom_teacher_id)
+                                    teacher = repository.get_teacher_by_id(session, group.homeroom_teacher_id)
                                 room = _get_or_create_room(session, lesson_payload)
                                 lesson = Lesson(
                                     source_lesson_id=lesson_source_id,
@@ -202,7 +201,7 @@ def _slot_time_payload(slot: int) -> tuple[str, str]:
 
 def _get_or_create_group(session, payload: dict[str, Any]) -> Group:
     name = str(payload.get("group_name", "")).strip()
-    group = session.scalar(select(Group).where(Group.source_name == name))
+    group = repository.find_group_by_name(session, name)
     if group is not None:
         return group
     group = Group(
@@ -217,7 +216,7 @@ def _get_or_create_group(session, payload: dict[str, Any]) -> Group:
 
 def _get_or_create_subject(session, name: str) -> Subject:
     subject_name = name.strip()
-    subject = session.scalar(select(Subject).where(Subject.source_name == subject_name))
+    subject = repository.find_subject_by_name(session, subject_name)
     if subject is not None:
         return subject
     subject = Subject(source_name=subject_name)
@@ -232,7 +231,7 @@ def _get_or_create_teacher(session, payload: dict[str, Any]) -> Teacher | None:
         return None
     teacher_payload = teachers[0]
     teacher_id = str(teacher_payload.get("teacher_id", "")).strip()
-    teacher = session.scalar(select(Teacher).where(Teacher.source_teacher_id == teacher_id))
+    teacher = repository.find_teacher_by_source_id(session, teacher_id)
     if teacher is not None:
         return teacher
     teacher = Teacher(
@@ -251,7 +250,7 @@ def _get_or_create_room(session, payload: dict[str, Any]) -> Room | None:
         return None
     room_payload = auditories[0]
     room_name = str(room_payload.get("auditory_name", "")).strip()
-    room = session.scalar(select(Room).where(Room.source_name == room_name))
+    room = repository.find_room_by_name(session, room_name)
     if room is not None:
         return room
     room = Room(source_name=room_name)
