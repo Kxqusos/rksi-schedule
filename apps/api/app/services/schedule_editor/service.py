@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from uuid import uuid4
 
-from sqlalchemy import func, select
-
 from app.models import AuditLog, Group, Lesson, Room, Subject, Teacher
 from app.schemas.schedule_edit import (
     LessonCreateRequest,
@@ -17,6 +15,7 @@ from app.schemas.schedule_edit import (
     ScheduleSlotRoomResponse,
 )
 from app.services.auth.permissions import Actor
+from app.services.schedule_editor import repository
 from app.services.teachers import teacher_absence_for_slot
 
 
@@ -90,7 +89,7 @@ def create_lesson(session, payload: LessonCreateRequest, actor: Actor) -> Lesson
 
 
 def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: Actor) -> LessonMutationResult:
-    lesson = session.get(Lesson, lesson_id)
+    lesson = repository.get_lesson_by_id(session, lesson_id)
     if lesson is None:
         raise LessonNotFoundError()
 
@@ -174,7 +173,7 @@ def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: 
 
 
 def delete_lesson(session, lesson_id: int, actor: Actor) -> None:
-    lesson = session.get(Lesson, lesson_id)
+    lesson = repository.get_lesson_by_id(session, lesson_id)
     if lesson is None:
         raise LessonNotFoundError()
     group_id = lesson.group_id
@@ -187,17 +186,8 @@ def delete_lesson(session, lesson_id: int, actor: Actor) -> None:
 
 
 def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleSlotRoomResponse]:
-    rooms = session.scalars(select(Room).where(Room.is_excluded.is_(False)).order_by(Room.source_name)).all()
-    lessons = session.scalars(
-        select(Lesson)
-        .join(Group, Group.id == Lesson.group_id)
-        .outerjoin(Room, Room.id == Lesson.room_id)
-        .where(
-            Lesson.lesson_date == lesson_date,
-            Lesson.time_slot == time_slot,
-        )
-        .order_by(Room.source_name, Group.source_name, Lesson.subgroup)
-    ).all()
+    rooms = repository.get_rooms_ordered(session)
+    lessons = repository.get_lessons_for_slot(session, lesson_date, time_slot)
 
     lessons_by_room: dict[str, list[LessonResponse]] = {}
     unplaced_lessons: list[LessonResponse] = []
@@ -226,7 +216,7 @@ def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleS
         for lesson in room_lessons
     ]
     for lesson in [*unplaced_lessons, *hidden_room_lessons]:
-        room = session.scalar(select(Room).where(Room.source_name == lesson.room_name)) if lesson.room_name else None
+        room = repository.get_room_by_name(session, lesson.room_name) if lesson.room_name else None
         rows.append(
             ScheduleSlotRoomResponse(
                 room_name=lesson.room_name or "Без кабинета",
@@ -240,23 +230,14 @@ def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleS
 
 
 def get_latest_public_week(session) -> PublicScheduleWeekResponse:
-    latest_date = session.scalar(select(func.max(Lesson.lesson_date)))
+    latest_date = repository.get_latest_lesson_date(session)
     if latest_date is None:
         return PublicScheduleWeekResponse()
 
     week_start = latest_date - timedelta(days=latest_date.weekday())
     week_end = week_start + timedelta(days=6)
-    latest_week_number = session.scalar(
-        select(Lesson.week_number)
-        .where(Lesson.lesson_date == latest_date)
-        .order_by(Lesson.week_number.desc())
-        .limit(1)
-    )
-    lessons = session.scalars(
-        select(Lesson)
-        .where(Lesson.lesson_date >= week_start, Lesson.lesson_date <= week_end)
-        .order_by(Lesson.lesson_date, Lesson.time_slot, Lesson.subgroup)
-    ).all()
+    latest_week_number = repository.get_latest_week_number_for_date(session, latest_date)
+    lessons = repository.get_lessons_for_week(session, week_start, week_end)
 
     lessons_by_date = {week_start + timedelta(days=offset): [] for offset in range(7)}
     for lesson in lessons:
@@ -279,13 +260,13 @@ def get_latest_public_week(session) -> PublicScheduleWeekResponse:
 
 def list_schedule_problems(session) -> list[ScheduleProblemResponse]:
     problems: list[ScheduleProblemResponse] = []
-    groups = session.scalars(select(Group).order_by(Group.source_name)).all()
+    groups = repository.get_all_groups_ordered(session)
     week_numbers = {
         int(week_number)
-        for week_number in session.scalars(select(Lesson.week_number).distinct()).all()
+        for week_number in repository.get_distinct_week_numbers(session)
         if week_number is not None
     }
-    dates = set(session.scalars(select(Lesson.lesson_date).distinct()).all())
+    dates = set(repository.get_distinct_lesson_dates(session))
 
     for group in groups:
         for week_number in week_numbers:
@@ -410,7 +391,7 @@ def _single_value(values):
 
 
 def _latest_import_id(session) -> int:
-    latest_id = session.scalar(select(Lesson.schedule_import_id).order_by(Lesson.schedule_import_id.desc()).limit(1))
+    latest_id = repository.get_latest_import_id(session)
     if latest_id is not None:
         return int(latest_id)
     raise ConflictError("at least one schedule import is required before manual edits")
@@ -427,7 +408,7 @@ def _ensure_no_conflicts(
     subgroup: int,
     exclude_lesson_id: int | None = None,
 ) -> None:
-    group_conflict = _first_conflict(
+    group_conflict = repository.get_conflicting_lesson(
         session,
         Lesson.group_id == group_id,
         Lesson.lesson_date == lesson_date,
@@ -439,7 +420,7 @@ def _ensure_no_conflicts(
         raise ConflictError("group already has a lesson in this slot")
 
     if room_id is not None:
-        room = session.get(Room, room_id)
+        room = repository.get_room_by_id(session, room_id)
         if room is not None and room.is_excluded:
             raise ConflictError("room is excluded from schedule")
 
@@ -452,13 +433,6 @@ def _ensure_no_conflicts(
         raise ConflictError("teacher is absent in this slot")
 
 
-def _first_conflict(session, *conditions, exclude_lesson_id: int | None):
-    query = select(Lesson).where(*conditions)
-    if exclude_lesson_id is not None:
-        query = query.where(Lesson.id != exclude_lesson_id)
-    return session.scalar(query.limit(1))
-
-
 def _lesson_in_room_slot(
     session,
     *,
@@ -469,14 +443,13 @@ def _lesson_in_room_slot(
 ) -> Lesson | None:
     if room_id is None:
         return None
-    query = select(Lesson).where(
-        Lesson.room_id == room_id,
-        Lesson.lesson_date == lesson_date,
-        Lesson.time_slot == time_slot,
+    return repository.get_lesson_in_room_slot(
+        session,
+        room_id=room_id,
+        lesson_date=lesson_date,
+        time_slot=time_slot,
+        exclude_lesson_id=exclude_lesson_id,
     )
-    if exclude_lesson_id is not None:
-        query = query.where(Lesson.id != exclude_lesson_id)
-    return session.scalar(query.order_by(Lesson.subgroup, Lesson.id).limit(1))
 
 
 def _ensure_group_rules(session, *, group_ids: set[int], dates: set, week_numbers: set[int]) -> None:
@@ -508,14 +481,12 @@ def _blocking_detail(problem: ScheduleProblemResponse) -> str:
 
 
 def _group_week_errors(session, group_id: int, week_number: int) -> list[ScheduleProblemResponse]:
-    lessons = session.scalars(
-        select(Lesson).where(Lesson.group_id == group_id, Lesson.week_number == week_number).order_by(Lesson.lesson_date, Lesson.time_slot)
-    ).all()
+    lessons = repository.get_lessons_for_group_and_week(session, group_id, week_number)
     counted_lessons = [lesson for lesson in lessons if _counts_toward_group_pair_limits(session, lesson)]
     actual_count = _weekly_pair_count(counted_lessons)
     if actual_count <= MAX_GROUP_WEEK_LESSONS:
         return []
-    group = session.get(Group, group_id)
+    group = repository.get_group_by_id(session, group_id)
     overage = actual_count - MAX_GROUP_WEEK_LESSONS
     return [
         ScheduleProblemResponse(
@@ -535,13 +506,11 @@ def _group_week_errors(session, group_id: int, week_number: int) -> list[Schedul
 
 
 def _group_day_errors(session, group_id: int, lesson_date) -> list[ScheduleProblemResponse]:
-    lessons = session.scalars(
-        select(Lesson).where(Lesson.group_id == group_id, Lesson.lesson_date == lesson_date).order_by(Lesson.time_slot)
-    ).all()
+    lessons = repository.get_lessons_for_group_and_date(session, group_id, lesson_date)
     if not lessons:
         return []
 
-    group = session.get(Group, group_id)
+    group = repository.get_group_by_id(session, group_id)
     group_name = group.source_name if group else None
     counted_lessons = [lesson for lesson in lessons if _counts_toward_group_pair_limits(session, lesson)]
     lesson_ids = [lesson.id for lesson in lessons]
@@ -608,7 +577,7 @@ def _counts_toward_group_pair_limits(session, lesson: Lesson) -> bool:
 
 
 def _is_additional_lesson(session, lesson: Lesson) -> bool:
-    subject = session.get(Subject, lesson.subject_id)
+    subject = repository.get_subject_by_id(session, lesson.subject_id)
     raw_payload = lesson.raw_payload if isinstance(lesson.raw_payload, dict) else {}
     labels = [
         lesson.lesson_type,
@@ -620,7 +589,7 @@ def _is_additional_lesson(session, lesson: Lesson) -> bool:
 
 
 def _is_class_hour_lesson(session, lesson: Lesson) -> bool:
-    subject = session.get(Subject, lesson.subject_id)
+    subject = repository.get_subject_by_id(session, lesson.subject_id)
     raw_payload = lesson.raw_payload if isinstance(lesson.raw_payload, dict) else {}
     labels = [
         lesson.lesson_type,
@@ -642,10 +611,8 @@ def _is_class_hour_lesson_label(label: str) -> bool:
 
 
 def _group_slot_teacher_errors(session, group_id: int, lesson_date) -> list[ScheduleProblemResponse]:
-    lessons = session.scalars(
-        select(Lesson).where(Lesson.group_id == group_id, Lesson.lesson_date == lesson_date).order_by(Lesson.time_slot)
-    ).all()
-    group = session.get(Group, group_id)
+    lessons = repository.get_lessons_for_group_and_date(session, group_id, lesson_date)
+    group = repository.get_group_by_id(session, group_id)
     problems: list[ScheduleProblemResponse] = []
     lessons_by_slot: dict[int, list[Lesson]] = {}
     for lesson in lessons:
@@ -673,7 +640,7 @@ def _group_slot_teacher_errors(session, group_id: int, lesson_date) -> list[Sche
 def _is_foreign_language_subgroup_split(session, lessons: list[Lesson]) -> bool:
     if len(lessons) < 2 or any(lesson.subgroup <= 0 for lesson in lessons):
         return False
-    subjects = [session.get(Subject, lesson.subject_id) for lesson in lessons]
+    subjects = [repository.get_subject_by_id(session, lesson.subject_id) for lesson in lessons]
     return all(subject is not None and "иностран" in subject.source_name.casefold() for subject in subjects)
 
 
@@ -704,9 +671,7 @@ def _warnings_for_lesson(session, lesson: Lesson) -> list[ScheduleProblemRespons
 
 
 def _absent_teacher_errors(session) -> list[ScheduleProblemResponse]:
-    lessons = session.scalars(
-        select(Lesson).where(Lesson.teacher_id.is_not(None)).order_by(Lesson.lesson_date, Lesson.time_slot)
-    ).all()
+    lessons = repository.get_lessons_with_teacher(session)
     problems: list[ScheduleProblemResponse] = []
     for lesson in lessons:
         if lesson.teacher_id is None:
@@ -719,7 +684,7 @@ def _absent_teacher_errors(session) -> list[ScheduleProblemResponse]:
         )
         if absence is None:
             continue
-        teacher = session.get(Teacher, lesson.teacher_id)
+        teacher = repository.get_teacher_by_id(session, lesson.teacher_id)
         reason_suffix = f" Причина: {absence.reason}." if absence.reason else ""
         problems.append(
             ScheduleProblemResponse(
@@ -739,14 +704,12 @@ def _absent_teacher_errors(session) -> list[ScheduleProblemResponse]:
 
 
 def _excluded_room_errors(session) -> list[ScheduleProblemResponse]:
-    lessons = session.scalars(
-        select(Lesson).where(Lesson.room_id.is_not(None)).order_by(Lesson.lesson_date, Lesson.time_slot)
-    ).all()
+    lessons = repository.get_lessons_with_room(session)
     problems: list[ScheduleProblemResponse] = []
     for lesson in lessons:
         if lesson.room_id is None:
             continue
-        room = session.get(Room, lesson.room_id)
+        room = repository.get_room_by_id(session, lesson.room_id)
         if room is None or not room.is_excluded:
             continue
         reason_suffix = f" Причина: {room.exclusion_reason}." if room.exclusion_reason else ""
@@ -768,12 +731,7 @@ def _excluded_room_errors(session) -> list[ScheduleProblemResponse]:
 
 
 def _double_booked_teacher_warnings(session, *, lesson_date=None, time_slot: int | None = None) -> list[ScheduleProblemResponse]:
-    query = select(Lesson).where(Lesson.teacher_id.is_not(None))
-    if lesson_date is not None:
-        query = query.where(Lesson.lesson_date == lesson_date)
-    if time_slot is not None:
-        query = query.where(Lesson.time_slot == time_slot)
-    lessons = session.scalars(query.order_by(Lesson.lesson_date, Lesson.time_slot)).all()
+    lessons = repository.get_lessons_with_teacher(session, lesson_date=lesson_date, time_slot=time_slot)
     grouped: dict[tuple[int, object, int], list[Lesson]] = {}
     for lesson in lessons:
         grouped.setdefault((lesson.teacher_id, lesson.lesson_date, lesson.time_slot), []).append(lesson)
@@ -783,7 +741,7 @@ def _double_booked_teacher_warnings(session, *, lesson_date=None, time_slot: int
         group_ids = {lesson.group_id for lesson in slot_lessons}
         if len(group_ids) <= 1:
             continue
-        teacher = session.get(Teacher, teacher_id)
+        teacher = repository.get_teacher_by_id(session, teacher_id)
         warnings.append(
             ScheduleProblemResponse(
                 severity="warning",
@@ -799,12 +757,7 @@ def _double_booked_teacher_warnings(session, *, lesson_date=None, time_slot: int
 
 
 def _double_booked_room_warnings(session, *, lesson_date=None, time_slot: int | None = None) -> list[ScheduleProblemResponse]:
-    query = select(Lesson).where(Lesson.room_id.is_not(None))
-    if lesson_date is not None:
-        query = query.where(Lesson.lesson_date == lesson_date)
-    if time_slot is not None:
-        query = query.where(Lesson.time_slot == time_slot)
-    lessons = session.scalars(query.order_by(Lesson.lesson_date, Lesson.time_slot)).all()
+    lessons = repository.get_lessons_with_room(session, lesson_date=lesson_date, time_slot=time_slot)
     grouped: dict[tuple[int, object, int], list[Lesson]] = {}
     for lesson in lessons:
         grouped.setdefault((lesson.room_id, lesson.lesson_date, lesson.time_slot), []).append(lesson)
@@ -814,7 +767,7 @@ def _double_booked_room_warnings(session, *, lesson_date=None, time_slot: int | 
         group_ids = {lesson.group_id for lesson in slot_lessons}
         if len(group_ids) <= 1:
             continue
-        room = session.get(Room, room_id)
+        room = repository.get_room_by_id(session, room_id)
         warnings.append(
             ScheduleProblemResponse(
                 severity="warning",
@@ -831,7 +784,7 @@ def _double_booked_room_warnings(session, *, lesson_date=None, time_slot: int | 
 
 def _get_or_create_group(session, name: str, course: int, faculty: str) -> Group:
     source_name = name.strip()
-    group = session.scalar(select(Group).where(Group.source_name == source_name))
+    group = repository.find_group_by_name(session, source_name)
     if group is not None:
         return group
     group = Group(source_name=source_name, course=course, faculty=faculty)
@@ -842,7 +795,7 @@ def _get_or_create_group(session, name: str, course: int, faculty: str) -> Group
 
 def _get_or_create_subject(session, name: str) -> Subject:
     source_name = name.strip()
-    subject = session.scalar(select(Subject).where(Subject.source_name == source_name))
+    subject = repository.find_subject_by_name(session, source_name)
     if subject is not None:
         return subject
     subject = Subject(source_name=source_name)
@@ -855,7 +808,7 @@ def _get_or_create_teacher(session, teacher_id: str | None, teacher_name: str | 
     if not teacher_id and not teacher_name:
         return None
     source_teacher_id = (teacher_id or teacher_name or "").strip()
-    teacher = session.scalar(select(Teacher).where(Teacher.source_teacher_id == source_teacher_id))
+    teacher = repository.find_teacher_by_source_id(session, source_teacher_id)
     if teacher is not None:
         return teacher
     teacher = Teacher(
@@ -872,7 +825,7 @@ def _get_or_create_room(session, room_name: str | None) -> Room | None:
     if not room_name:
         return None
     source_name = room_name.strip()
-    room = session.scalar(select(Room).where(Room.source_name == source_name))
+    room = repository.find_room_by_name(session, source_name)
     if room is not None:
         return room
     room = Room(source_name=source_name)
@@ -882,10 +835,10 @@ def _get_or_create_room(session, room_name: str | None) -> Room | None:
 
 
 def _lesson_response(session, lesson: Lesson) -> LessonResponse:
-    group = session.get(Group, lesson.group_id)
-    subject = session.get(Subject, lesson.subject_id)
-    teacher = session.get(Teacher, lesson.teacher_id) if lesson.teacher_id else None
-    room = session.get(Room, lesson.room_id) if lesson.room_id else None
+    group = repository.get_group_by_id(session, lesson.group_id)
+    subject = repository.get_subject_by_id(session, lesson.subject_id)
+    teacher = repository.get_teacher_by_id(session, lesson.teacher_id) if lesson.teacher_id else None
+    room = repository.get_room_by_id(session, lesson.room_id) if lesson.room_id else None
     teacher_absence = (
         teacher_absence_for_slot(
             session,
