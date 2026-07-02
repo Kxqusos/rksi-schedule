@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
     dispose_engine()
 
 
-app = FastAPI(title="Schedule RKS API", lifespan=lifespan)
+app = FastAPI(title="Schedule RKSI API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_cors_origins(),
