@@ -1,9 +1,15 @@
 from __future__ import annotations
 
-from app.models import Lesson
+from collections.abc import Callable
+
+from app.models import Group, Lesson, Subject
 from app.schemas.schedule_edit import ScheduleProblemResponse
 from app.services.schedule_editor import mappers, repository
-from app.services.teachers import teacher_absence_for_slot
+from app.services.teachers import absence_matches_slot, teacher_absences_by_teacher
+
+# Resolves a subject_id to its Subject (or None). Backed by a preloaded dict in
+# the bulk linter and by repository.get_subject_by_id in the per-mutation path.
+SubjectLookup = Callable[[int], "Subject | None"]
 
 
 MAX_GROUP_WEEK_LESSONS = 18
@@ -21,6 +27,13 @@ AGGREGATED_GROUP_PROBLEM_CODES = {
 def list_schedule_problems(session) -> list[ScheduleProblemResponse]:
     problems: list[ScheduleProblemResponse] = []
     groups = repository.get_all_groups_ordered(session)
+
+    # Preload everything once instead of querying per (group, week) / (group,
+    # date): on a full year that inner loop was O(groups x dates) round-trips.
+    all_lessons = repository.get_all_lessons(session)
+    subjects_by_id = {subject.id: subject for subject in repository.get_all_subjects(session)}
+    subject_lookup = subjects_by_id.get
+
     week_numbers = {
         int(week_number)
         for week_number in repository.get_distinct_week_numbers(session)
@@ -28,12 +41,20 @@ def list_schedule_problems(session) -> list[ScheduleProblemResponse]:
     }
     dates = set(repository.get_distinct_lesson_dates(session))
 
+    lessons_by_group_week: dict[tuple[int, int], list[Lesson]] = {}
+    lessons_by_group_date: dict[tuple[int, object], list[Lesson]] = {}
+    for lesson in all_lessons:
+        lessons_by_group_week.setdefault((lesson.group_id, lesson.week_number), []).append(lesson)
+        lessons_by_group_date.setdefault((lesson.group_id, lesson.lesson_date), []).append(lesson)
+
     for group in groups:
         for week_number in week_numbers:
-            problems.extend(_group_week_errors(session, group.id, week_number))
+            week_lessons = lessons_by_group_week.get((group.id, week_number), [])
+            problems.extend(_group_week_problems(group, week_number, week_lessons, subject_lookup))
         for lesson_date in dates:
-            problems.extend(_group_day_errors(session, group.id, lesson_date))
-            problems.extend(_group_slot_teacher_errors(session, group.id, lesson_date))
+            day_lessons = lessons_by_group_date.get((group.id, lesson_date), [])
+            problems.extend(_group_day_problems(group, lesson_date, day_lessons, subject_lookup))
+            problems.extend(_group_slot_teacher_problems(group, lesson_date, day_lessons, subject_lookup))
 
     problems.extend(_double_booked_teacher_warnings(session))
     problems.extend(_double_booked_room_warnings(session))
@@ -165,11 +186,20 @@ def _blocking_detail(problem: ScheduleProblemResponse) -> str:
 
 def _group_week_errors(session, group_id: int, week_number: int) -> list[ScheduleProblemResponse]:
     lessons = repository.get_lessons_for_group_and_week(session, group_id, week_number)
-    counted_lessons = [lesson for lesson in lessons if _counts_toward_group_pair_limits(session, lesson)]
+    group = repository.get_group_by_id(session, group_id)
+    return _group_week_problems(group, week_number, lessons, lambda sid: repository.get_subject_by_id(session, sid))
+
+
+def _group_week_problems(
+    group: Group | None,
+    week_number: int,
+    lessons: list[Lesson],
+    subject_lookup: SubjectLookup,
+) -> list[ScheduleProblemResponse]:
+    counted_lessons = [lesson for lesson in lessons if _counts_toward_group_pair_limits(lesson, subject_lookup)]
     actual_count = _weekly_pair_count(counted_lessons)
     if actual_count <= MAX_GROUP_WEEK_LESSONS:
         return []
-    group = repository.get_group_by_id(session, group_id)
     overage = actual_count - MAX_GROUP_WEEK_LESSONS
     return [
         mappers.problem_to_response(
@@ -190,12 +220,21 @@ def _group_week_errors(session, group_id: int, week_number: int) -> list[Schedul
 
 def _group_day_errors(session, group_id: int, lesson_date) -> list[ScheduleProblemResponse]:
     lessons = repository.get_lessons_for_group_and_date(session, group_id, lesson_date)
+    group = repository.get_group_by_id(session, group_id)
+    return _group_day_problems(group, lesson_date, lessons, lambda sid: repository.get_subject_by_id(session, sid))
+
+
+def _group_day_problems(
+    group: Group | None,
+    lesson_date,
+    lessons: list[Lesson],
+    subject_lookup: SubjectLookup,
+) -> list[ScheduleProblemResponse]:
     if not lessons:
         return []
 
-    group = repository.get_group_by_id(session, group_id)
     group_name = group.source_name if group else None
-    counted_lessons = [lesson for lesson in lessons if _counts_toward_group_pair_limits(session, lesson)]
+    counted_lessons = [lesson for lesson in lessons if _counts_toward_group_pair_limits(lesson, subject_lookup)]
     lesson_ids = [lesson.id for lesson in lessons]
     counted_lesson_ids = [lesson.id for lesson in counted_lessons]
     actual_count = _daily_pair_count(counted_lessons)
@@ -255,12 +294,12 @@ def _weekly_pair_count(lessons: list[Lesson]) -> int:
     return len({(lesson.lesson_date, lesson.time_slot) for lesson in lessons})
 
 
-def _counts_toward_group_pair_limits(session, lesson: Lesson) -> bool:
-    return not _is_additional_lesson(session, lesson) and not _is_class_hour_lesson(session, lesson)
+def _counts_toward_group_pair_limits(lesson: Lesson, subject_lookup: SubjectLookup) -> bool:
+    return not _is_additional_lesson(lesson, subject_lookup) and not _is_class_hour_lesson(lesson, subject_lookup)
 
 
-def _is_additional_lesson(session, lesson: Lesson) -> bool:
-    subject = repository.get_subject_by_id(session, lesson.subject_id)
+def _is_additional_lesson(lesson: Lesson, subject_lookup: SubjectLookup) -> bool:
+    subject = subject_lookup(lesson.subject_id)
     raw_payload = lesson.raw_payload if isinstance(lesson.raw_payload, dict) else {}
     labels = [
         lesson.lesson_type,
@@ -271,8 +310,8 @@ def _is_additional_lesson(session, lesson: Lesson) -> bool:
     return any(_is_additional_lesson_label(str(label)) for label in labels if label is not None)
 
 
-def _is_class_hour_lesson(session, lesson: Lesson) -> bool:
-    subject = repository.get_subject_by_id(session, lesson.subject_id)
+def _is_class_hour_lesson(lesson: Lesson, subject_lookup: SubjectLookup) -> bool:
+    subject = subject_lookup(lesson.subject_id)
     raw_payload = lesson.raw_payload if isinstance(lesson.raw_payload, dict) else {}
     labels = [
         lesson.lesson_type,
@@ -296,6 +335,17 @@ def _is_class_hour_lesson_label(label: str) -> bool:
 def _group_slot_teacher_errors(session, group_id: int, lesson_date) -> list[ScheduleProblemResponse]:
     lessons = repository.get_lessons_for_group_and_date(session, group_id, lesson_date)
     group = repository.get_group_by_id(session, group_id)
+    return _group_slot_teacher_problems(
+        group, lesson_date, lessons, lambda sid: repository.get_subject_by_id(session, sid)
+    )
+
+
+def _group_slot_teacher_problems(
+    group: Group | None,
+    lesson_date,
+    lessons: list[Lesson],
+    subject_lookup: SubjectLookup,
+) -> list[ScheduleProblemResponse]:
     problems: list[ScheduleProblemResponse] = []
     lessons_by_slot: dict[int, list[Lesson]] = {}
     for lesson in lessons:
@@ -304,7 +354,7 @@ def _group_slot_teacher_errors(session, group_id: int, lesson_date) -> list[Sche
         teacher_ids = {lesson.teacher_id for lesson in slot_lessons if lesson.teacher_id is not None}
         if len(teacher_ids) <= 1:
             continue
-        if _is_foreign_language_subgroup_split(session, slot_lessons):
+        if _is_foreign_language_subgroup_split(slot_lessons, subject_lookup):
             continue
         problems.append(
             mappers.problem_to_response(
@@ -320,10 +370,10 @@ def _group_slot_teacher_errors(session, group_id: int, lesson_date) -> list[Sche
     return problems
 
 
-def _is_foreign_language_subgroup_split(session, lessons: list[Lesson]) -> bool:
+def _is_foreign_language_subgroup_split(lessons: list[Lesson], subject_lookup: SubjectLookup) -> bool:
     if len(lessons) < 2 or any(lesson.subgroup <= 0 for lesson in lessons):
         return False
-    subjects = [repository.get_subject_by_id(session, lesson.subject_id) for lesson in lessons]
+    subjects = [subject_lookup(lesson.subject_id) for lesson in lessons]
     return all(subject is not None and "иностран" in subject.source_name.casefold() for subject in subjects)
 
 
@@ -355,19 +405,24 @@ def _warnings_for_lesson(session, lesson: Lesson) -> list[ScheduleProblemRespons
 
 def _absent_teacher_errors(session) -> list[ScheduleProblemResponse]:
     lessons = repository.get_lessons_with_teacher(session)
+    # Preload absences and teachers once instead of a per-lesson absence query.
+    absences_by_teacher = teacher_absences_by_teacher(session)
+    teachers_by_id = {teacher.id: teacher for teacher in repository.get_all_teachers(session)}
     problems: list[ScheduleProblemResponse] = []
     for lesson in lessons:
         if lesson.teacher_id is None:
             continue
-        absence = teacher_absence_for_slot(
-            session,
-            teacher_id=lesson.teacher_id,
-            lesson_date=lesson.lesson_date,
-            time_slot=lesson.time_slot,
+        absence = next(
+            (
+                candidate
+                for candidate in absences_by_teacher.get(lesson.teacher_id, [])
+                if absence_matches_slot(candidate, lesson_date=lesson.lesson_date, time_slot=lesson.time_slot)
+            ),
+            None,
         )
         if absence is None:
             continue
-        teacher = repository.get_teacher_by_id(session, lesson.teacher_id)
+        teacher = teachers_by_id.get(lesson.teacher_id)
         reason_suffix = f" Причина: {absence.reason}." if absence.reason else ""
         problems.append(
             mappers.problem_to_response(
@@ -388,11 +443,12 @@ def _absent_teacher_errors(session) -> list[ScheduleProblemResponse]:
 
 def _excluded_room_errors(session) -> list[ScheduleProblemResponse]:
     lessons = repository.get_lessons_with_room(session)
+    rooms_by_id = {room.id: room for room in repository.get_all_rooms(session)}
     problems: list[ScheduleProblemResponse] = []
     for lesson in lessons:
         if lesson.room_id is None:
             continue
-        room = repository.get_room_by_id(session, lesson.room_id)
+        room = rooms_by_id.get(lesson.room_id)
         if room is None or not room.is_excluded:
             continue
         reason_suffix = f" Причина: {room.exclusion_reason}." if room.exclusion_reason else ""

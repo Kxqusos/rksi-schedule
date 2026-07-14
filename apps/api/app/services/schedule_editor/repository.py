@@ -51,6 +51,31 @@ def get_all_groups_ordered(session) -> list[Group]:
     return session.scalars(select(Group).order_by(Group.source_name)).all()
 
 
+def get_all_lessons(session) -> list[Lesson]:
+    """All lessons in a deterministic order so in-memory bucketing by
+    (group, week) / (group, date) matches the per-slice query orderings."""
+    return session.scalars(
+        select(Lesson).order_by(
+            Lesson.group_id,
+            Lesson.lesson_date,
+            Lesson.time_slot,
+            Lesson.subgroup,
+        )
+    ).all()
+
+
+def get_all_subjects(session) -> list[Subject]:
+    return session.scalars(select(Subject)).all()
+
+
+def get_all_teachers(session) -> list[Teacher]:
+    return session.scalars(select(Teacher)).all()
+
+
+def get_all_rooms(session) -> list[Room]:
+    return session.scalars(select(Room)).all()
+
+
 def get_distinct_week_numbers(session) -> list[int | None]:
     return session.scalars(select(Lesson.week_number).distinct()).all()
 

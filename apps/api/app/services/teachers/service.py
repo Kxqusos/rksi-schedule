@@ -140,6 +140,20 @@ def teacher_absence_for_slot(session, *, teacher_id: int, lesson_date: date, tim
     return repository.get_absence_for_slot(session, teacher_id=teacher_id, lesson_date=lesson_date, time_slot=time_slot)
 
 
+def teacher_absences_by_teacher(session) -> dict[int, list[TeacherAbsence]]:
+    """All absences grouped by teacher_id, for bulk in-memory slot matching
+    (avoids a per-lesson absence query in the schedule linter)."""
+    return repository.get_absences_by_teacher(session)
+
+
+def absence_matches_slot(absence: TeacherAbsence, *, lesson_date: date, time_slot: int) -> bool:
+    return (
+        absence.absence_date == lesson_date
+        and absence.time_slot_start <= time_slot
+        and absence.time_slot_end >= time_slot
+    )
+
+
 def _audit(session, *, action: str, teacher: Teacher, actor: Actor, payload: dict) -> None:
     session.add(
         AuditLog(
