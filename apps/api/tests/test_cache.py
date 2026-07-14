@@ -51,6 +51,15 @@ class FakeRedis:
             for key in keys:
                 self._store.pop(key, None)
 
+    def scan_iter(self, match: str = "*", count: int = 100):
+        import fnmatch
+
+        with self._lock:
+            keys = list(self._store.keys())
+        for key in keys:
+            if fnmatch.fnmatch(key, match):
+                yield key
+
 
 def _make_cache(**kwargs) -> ScheduleCache:
     cache = ScheduleCache(redis_url=None, **kwargs)
@@ -71,7 +80,7 @@ def test_get_or_set_returns_cached_value_without_calling_factory():
 
 
 def test_single_flight_only_calls_factory_once_under_concurrent_miss():
-    cache = _make_cache(lock_timeout_seconds=2.0, wait_poll_interval_seconds=0.01)
+    cache = _make_cache(lock_ttl_seconds=2.0, wait_timeout_seconds=2.0, wait_poll_interval_seconds=0.01)
     call_count = 0
     call_count_lock = threading.Lock()
 
@@ -102,7 +111,7 @@ def test_single_flight_only_calls_factory_once_under_concurrent_miss():
 
 
 def test_waiter_falls_back_to_factory_if_lock_holder_never_finishes():
-    cache = _make_cache(lock_timeout_seconds=0.2, wait_poll_interval_seconds=0.02)
+    cache = _make_cache(wait_timeout_seconds=0.2, wait_poll_interval_seconds=0.02)
     # Simulate a lock acquired by a holder that never sets the value or releases.
     cache._client.set(f"{cache._key('group', 1, 7)}:lock", "stuck-token", nx=True, px=100000)
 
@@ -121,3 +130,27 @@ def test_no_client_always_calls_factory_directly():
     cache.get_or_set("group", 1, 7, lambda: calls.append(2) or {"value": "b"})
 
     assert calls == [1, 2]
+
+
+def test_invalidate_all_removes_only_schedule_keys():
+    cache = _make_cache()
+    cache.get_or_set("group", 1, 7, lambda: {"value": "g1"})
+    cache.get_or_set("teacher", 2, 7, lambda: {"value": "t2"})
+    cache._client.set("unrelated:key", "keep")
+
+    cache.invalidate_all()
+
+    assert cache._client.get(cache._key("group", 1, 7)) is None
+    assert cache._client.get(cache._key("teacher", 2, 7)) is None
+    assert cache._client.get("unrelated:key") == "keep"
+
+
+def test_invalidate_removes_single_key():
+    cache = _make_cache()
+    cache.get_or_set("group", 1, 7, lambda: {"value": "g1"})
+    cache.get_or_set("group", 2, 7, lambda: {"value": "g2"})
+
+    cache.invalidate("group", 1, 7)
+
+    assert cache._client.get(cache._key("group", 1, 7)) is None
+    assert cache._client.get(cache._key("group", 2, 7)) is not None
