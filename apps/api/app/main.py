@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.cache import init_cache
+from app.core.cache import get_cache, init_cache
 from app.core.config import get_cors_origins, get_database_url, get_redis_url
 from app.db.engine import dispose_engine, init_engine
 from app.routers.auth import router as auth_router
@@ -59,6 +59,7 @@ async def import_schedule(request: Request) -> dict[str, int]:
         payload,
         source_path="api:/imports/schedule",
     )
+    get_cache().invalidate_all()
     return asdict(result)
 
 

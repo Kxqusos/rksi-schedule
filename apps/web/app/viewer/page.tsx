@@ -34,31 +34,86 @@ type PublicScheduleWeek = {
   days: PublicScheduleDay[];
 };
 
-type GroupWeekRow = {
-  groupName: string;
-  lessonsByDate: Record<string, PublicLesson[]>;
+type EntityRef = { id: number; name: string };
+
+type PublicIndex = {
+  groups: EntityRef[];
+  teachers: EntityRef[];
+  rooms: EntityRef[];
+  weeks: number[];
+  latest_week: number | null;
 };
+
+type EntityType = "group" | "teacher" | "room";
 
 const weekdayLabels = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
+const entityConfig: Record<EntityType, { label: string; listKey: "groups" | "teachers" | "rooms"; path: string; param: string }> = {
+  group: { label: "Группа", listKey: "groups", path: "by-group", param: "group_id" },
+  teacher: { label: "Преподаватель", listKey: "teachers", path: "by-teacher", param: "teacher_id" },
+  room: { label: "Кабинет", listKey: "rooms", path: "by-room", param: "room_id" },
+};
+
 export default function ScheduleViewerPage() {
-  const [week, setWeek] = useState<PublicScheduleWeek | null>(null);
+  const [index, setIndex] = useState<PublicIndex | null>(null);
+  const [entityType, setEntityType] = useState<EntityType>("group");
+  const [entityId, setEntityId] = useState<number | null>(null);
+  const [week, setWeek] = useState<number | null>(null);
   const [query, setQuery] = useState("");
+  const [weekData, setWeekData] = useState<PublicScheduleWeek | null>(null);
   const [status, setStatus] = useState("Загрузка расписания.");
   const [busy, setBusy] = useState(true);
 
-  const loadWeek = async () => {
+  const loadIndex = async () => {
     setBusy(true);
     try {
-      const response = await fetch(`${apiBaseUrl}/schedule/public/latest-week`, {
-        cache: "no-store",
-      });
+      const response = await fetch(`${apiBaseUrl}/schedule/public/index`, { cache: "no-store" });
       if (!response.ok) {
         throw new Error(await response.text());
       }
-      const payload = (await response.json()) as PublicScheduleWeek;
-      setWeek(payload);
-      setStatus(payload.days.length > 0 ? "Расписание загружено." : "Расписание пока не загружено.");
+      const payload = (await response.json()) as PublicIndex;
+      setIndex(payload);
+      setWeek(payload.latest_week ?? payload.weeks[payload.weeks.length - 1] ?? null);
+      setEntityId(payload.groups[0]?.id ?? null);
+      setStatus(payload.groups.length > 0 ? "" : "Расписание пока не загружено.");
+    } catch {
+      setStatus("Не удалось загрузить расписание.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadIndex();
+  }, []);
+
+  const entities = useMemo<EntityRef[]>(() => (index ? index[entityConfig[entityType].listKey] : []), [index, entityType]);
+
+  const visibleEntities = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase("ru-RU");
+    if (!normalized) {
+      return entities;
+    }
+    return entities.filter((entity) => entity.name.toLocaleLowerCase("ru-RU").includes(normalized));
+  }, [entities, query]);
+
+  const loadWeek = async () => {
+    if (entityId == null || week == null) {
+      setWeekData(null);
+      return;
+    }
+    setBusy(true);
+    try {
+      const config = entityConfig[entityType];
+      const response = await fetch(
+        `${apiBaseUrl}/schedule/public/${config.path}?${config.param}=${entityId}&week=${week}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      setWeekData((await response.json()) as PublicScheduleWeek);
+      setStatus("");
     } catch {
       setStatus("Не удалось загрузить расписание.");
     } finally {
@@ -68,19 +123,19 @@ export default function ScheduleViewerPage() {
 
   useEffect(() => {
     void loadWeek();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entityType, entityId, week]);
 
-  const lessons = useMemo(() => week?.days.flatMap((day) => day.lessons) ?? [], [week]);
-  const rows = useMemo(() => buildGroupRows(week?.days ?? []), [week]);
-  const visibleRows = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase("ru-RU");
-    if (!normalizedQuery) {
-      return rows;
-    }
-    return rows.filter((row) => row.groupName.toLocaleLowerCase("ru-RU").includes(normalizedQuery));
-  }, [query, rows]);
+  const selectEntityType = (nextType: EntityType) => {
+    setEntityType(nextType);
+    setQuery("");
+    setEntityId(index?.[entityConfig[nextType].listKey][0]?.id ?? null);
+  };
 
-  const weekRange = week?.week_start && week.week_end ? `${formatDate(week.week_start)} - ${formatDate(week.week_end)}` : "";
+  const selectedEntity = entities.find((entity) => entity.id === entityId) ?? null;
+  const lessons = useMemo(() => weekData?.days.flatMap((day) => day.lessons) ?? [], [weekData]);
+  const weekRange =
+    weekData?.week_start && weekData.week_end ? `${formatDate(weekData.week_start)} - ${formatDate(weekData.week_end)}` : "";
 
   return (
     <main className="viewer-shell">
@@ -90,13 +145,13 @@ export default function ScheduleViewerPage() {
           <h1>Расписание занятий</h1>
           <div className="viewer-week">
             {weekRange ? <span>{weekRange}</span> : <span>Неделя не выбрана</span>}
-            {week?.week_number ? <strong>{week.week_number} неделя</strong> : null}
+            {weekData?.week_number ? <strong>{weekData.week_number} неделя</strong> : null}
           </div>
         </div>
         <div className="viewer-header__side">
           <div className="viewer-stat">
-            <span>Групп</span>
-            <strong>{rows.length}</strong>
+            <span>{entityConfig[entityType].label}</span>
+            <strong>{selectedEntity?.name ?? "—"}</strong>
           </div>
           <div className="viewer-stat">
             <span>Занятий</span>
@@ -106,65 +161,100 @@ export default function ScheduleViewerPage() {
       </header>
 
       <section className="viewer-toolbar" aria-label="Управление расписанием">
+        <div className="viewer-segmented" role="tablist" aria-label="Тип поиска">
+          {(Object.keys(entityConfig) as EntityType[]).map((type) => (
+            <button
+              aria-selected={entityType === type}
+              className={entityType === type ? "viewer-segmented__button viewer-segmented__button--active" : "viewer-segmented__button"}
+              key={type}
+              onClick={() => selectEntityType(type)}
+              role="tab"
+              type="button"
+            >
+              {entityConfig[type].label}
+            </button>
+          ))}
+        </div>
         <label className="viewer-search">
           <Search aria-hidden="true" size={17} strokeWidth={2} />
           <input
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Найти группу"
+            placeholder={`Найти: ${entityConfig[entityType].label.toLocaleLowerCase("ru-RU")}`}
             value={query}
           />
         </label>
+        <select
+          aria-label={entityConfig[entityType].label}
+          className="viewer-select"
+          onChange={(event) => setEntityId(Number(event.target.value))}
+          value={entityId ?? ""}
+        >
+          {visibleEntities.map((entity) => (
+            <option key={entity.id} value={entity.id}>
+              {entity.name}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Неделя"
+          className="viewer-select"
+          onChange={(event) => setWeek(Number(event.target.value))}
+          value={week ?? ""}
+        >
+          {(index?.weeks ?? []).map((weekNumber) => (
+            <option key={weekNumber} value={weekNumber}>
+              {weekNumber} неделя
+            </option>
+          ))}
+        </select>
         <button className="viewer-refresh" disabled={busy} onClick={loadWeek} type="button">
           <RefreshCw aria-hidden="true" className={busy ? "viewer-refresh__icon viewer-refresh__icon--spin" : "viewer-refresh__icon"} size={16} />
           <span>{busy ? "Обновляем" : "Обновить"}</span>
         </button>
       </section>
 
-      <section className="viewer-status" aria-live="polite">
-        {status}
-      </section>
+      {status ? (
+        <section className="viewer-status" aria-live="polite">
+          {status}
+        </section>
+      ) : null}
 
       {busy ? (
         <ViewerSkeleton />
-      ) : visibleRows.length > 0 && week ? (
-        <section className="viewer-table-wrap" aria-label="Последняя актуальная неделя">
+      ) : weekData && selectedEntity ? (
+        <section className="viewer-table-wrap" aria-label={`Расписание: ${selectedEntity.name}`}>
           <div className="viewer-table">
             <div className="viewer-table__head">
-              <div className="viewer-table__group-head">Группа</div>
-              {week.days.map((day, index) => (
+              <div className="viewer-table__group-head">{entityConfig[entityType].label}</div>
+              {weekData.days.map((day, dayIndex) => (
                 <div className="viewer-table__day-head" key={day.date}>
-                  <strong>{weekdayLabels[index] ?? day.weekday}</strong>
+                  <strong>{weekdayLabels[dayIndex] ?? day.weekday}</strong>
                   <span>{formatShortDate(day.date)}</span>
                 </div>
               ))}
             </div>
-
-            {visibleRows.map((row) => (
-              <div className="viewer-table__row" key={row.groupName}>
-                <div className="viewer-table__group">{row.groupName}</div>
-                {week.days.map((day) => (
-                  <div className="viewer-table__cell" key={`${row.groupName}-${day.date}`}>
-                    {(row.lessonsByDate[day.date] ?? []).length > 0 ? (
-                      row.lessonsByDate[day.date].map((lesson) => <LessonCard key={lesson.id} lesson={lesson} />)
-                    ) : (
-                      <span className="viewer-empty-cell">Нет занятий</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ))}
+            <div className="viewer-table__row">
+              <div className="viewer-table__group">{selectedEntity.name}</div>
+              {weekData.days.map((day) => (
+                <div className="viewer-table__cell" key={`${selectedEntity.id}-${day.date}`}>
+                  {day.lessons.length > 0 ? (
+                    day.lessons.map((lesson) => <LessonCard entityType={entityType} key={lesson.id} lesson={lesson} />)
+                  ) : (
+                    <span className="viewer-empty-cell">Нет занятий</span>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </section>
       ) : (
-        <section className="viewer-empty">
-          {query.trim() ? "Группы по этому запросу не найдены." : "Расписание пока не загружено."}
-        </section>
+        <section className="viewer-empty">Расписание пока не загружено.</section>
       )}
     </main>
   );
 }
 
-function LessonCard({ lesson }: { lesson: PublicLesson }) {
+function LessonCard({ lesson, entityType }: { lesson: PublicLesson; entityType: EntityType }) {
   return (
     <article className="viewer-lesson">
       <div className="viewer-lesson__top">
@@ -173,8 +263,9 @@ function LessonCard({ lesson }: { lesson: PublicLesson }) {
       </div>
       <div className="viewer-lesson__subject">{lesson.subject}</div>
       <div className="viewer-lesson__meta">
-        {lesson.teacher_name ? <span>{lesson.teacher_name}</span> : null}
-        {lesson.room_name ? <span>{lesson.room_name}</span> : null}
+        {entityType !== "group" ? <span>{lesson.group_name}</span> : null}
+        {entityType !== "teacher" && lesson.teacher_name ? <span>{lesson.teacher_name}</span> : null}
+        {entityType !== "room" && lesson.room_name ? <span>{lesson.room_name}</span> : null}
         {lesson.subgroup > 0 ? <span>{lesson.subgroup} подгр.</span> : null}
       </div>
     </article>
@@ -194,27 +285,6 @@ function ViewerSkeleton() {
       ))}
     </section>
   );
-}
-
-function buildGroupRows(days: PublicScheduleDay[]): GroupWeekRow[] {
-  const rows = new Map<string, GroupWeekRow>();
-  for (const day of days) {
-    for (const lesson of day.lessons) {
-      const row =
-        rows.get(lesson.group_name) ??
-        {
-          groupName: lesson.group_name,
-          lessonsByDate: {},
-        };
-      row.lessonsByDate[day.date] = [...(row.lessonsByDate[day.date] ?? []), lesson].sort(compareLessons);
-      rows.set(lesson.group_name, row);
-    }
-  }
-  return Array.from(rows.values()).sort((left, right) => left.groupName.localeCompare(right.groupName, "ru"));
-}
-
-function compareLessons(left: PublicLesson, right: PublicLesson) {
-  return left.time_slot - right.time_slot || left.subgroup - right.subgroup || left.subject.localeCompare(right.subject, "ru");
 }
 
 function formatDate(value: string) {

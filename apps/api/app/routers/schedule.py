@@ -12,6 +12,7 @@ from app.schemas.schedule_edit import (
     LessonCreateRequest,
     LessonMutationResponse,
     LessonUpdateRequest,
+    PublicScheduleIndexResponse,
     PublicScheduleWeekResponse,
     ScheduleProblemResponse,
     ScheduleSlotRoomResponse,
@@ -20,10 +21,39 @@ from app.services.auth.permissions import Actor, require_editor_actor
 from app.services.schedule_editor import ConflictError, LessonNotFoundError
 from app.services.schedule_editor import create_lesson as create_lesson_service
 from app.services.schedule_editor import delete_lesson as delete_lesson_service
-from app.services.schedule_editor.service import get_latest_public_week, list_lessons_by_slot, list_schedule_problems
+from app.services.schedule_editor.service import (
+    CacheKey,
+    get_latest_public_week,
+    get_latest_week_number,
+    get_public_schedule_index,
+    get_public_week_for_entity,
+    list_lessons_by_slot,
+    list_schedule_problems,
+)
 from app.services.schedule_editor import update_lesson as update_lesson_service
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
+
+
+def _invalidate(cache_keys: list[CacheKey]) -> None:
+    """Invalidate exactly the per-entity keys the mutation touched, plus the
+    single global latest-week key (still served for the default view)."""
+    cache = get_cache()
+    for entity_type, entity_id, week in cache_keys:
+        cache.invalidate(entity_type, entity_id, week)
+    cache.invalidate("latest", 0, 0)
+
+
+def _public_entity_week(session: Session, entity_type: str, entity_id: int, week: int | None) -> dict:
+    week_number = week if week is not None else get_latest_week_number(session)
+    if week_number is None:
+        return PublicScheduleWeekResponse().model_dump(mode="json")
+    return get_cache().get_or_set(
+        entity_type,
+        entity_id,
+        week_number,
+        lambda: get_public_week_for_entity(session, entity_type, entity_id, week_number).model_dump(mode="json"),
+    )
 
 
 @router.get("/public/latest-week", response_model=PublicScheduleWeekResponse)
@@ -33,6 +63,38 @@ def get_public_latest_week(session: Annotated[Session, Depends(get_session)]) ->
         "latest", 0, 0,
         lambda: get_latest_public_week(session).model_dump(mode="json"),
     )
+
+
+@router.get("/public/index", response_model=PublicScheduleIndexResponse)
+def get_public_index(session: Annotated[Session, Depends(get_session)]) -> dict:
+    return get_public_schedule_index(session).model_dump(mode="json")
+
+
+@router.get("/public/by-group", response_model=PublicScheduleWeekResponse)
+def get_public_by_group(
+    group_id: int,
+    session: Annotated[Session, Depends(get_session)],
+    week: int | None = None,
+) -> dict:
+    return _public_entity_week(session, "group", group_id, week)
+
+
+@router.get("/public/by-teacher", response_model=PublicScheduleWeekResponse)
+def get_public_by_teacher(
+    teacher_id: int,
+    session: Annotated[Session, Depends(get_session)],
+    week: int | None = None,
+) -> dict:
+    return _public_entity_week(session, "teacher", teacher_id, week)
+
+
+@router.get("/public/by-room", response_model=PublicScheduleWeekResponse)
+def get_public_by_room(
+    room_id: int,
+    session: Annotated[Session, Depends(get_session)],
+    week: int | None = None,
+) -> dict:
+    return _public_entity_week(session, "room", room_id, week)
 
 
 @router.get("/lessons", response_model=list[ScheduleSlotRoomResponse])
@@ -67,7 +129,7 @@ def create_lesson(
             result = create_lesson_service(session, payload, actor)
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
-    get_cache().invalidate_all()
+    _invalidate(result.cache_keys)
     return {
         **result.lesson.model_dump(mode="json"),
         "warnings": [warning.model_dump(mode="json") for warning in result.warnings],
@@ -88,7 +150,7 @@ def update_lesson(
         raise HTTPException(status_code=404, detail="lesson not found") from exc
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
-    get_cache().invalidate_all()
+    _invalidate(result.cache_keys)
     return {
         **result.lesson.model_dump(mode="json"),
         "warnings": [warning.model_dump(mode="json") for warning in result.warnings],
@@ -103,8 +165,8 @@ def delete_lesson(
 ) -> Response:
     try:
         with session.begin():
-            delete_lesson_service(session, lesson_id, actor)
+            cache_keys = delete_lesson_service(session, lesson_id, actor)
     except LessonNotFoundError as exc:
         raise HTTPException(status_code=404, detail="lesson not found") from exc
-    get_cache().invalidate_all()
+    _invalidate(cache_keys)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

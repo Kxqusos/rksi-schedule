@@ -98,3 +98,16 @@ class PublicScheduleWeekResponse(BaseModel):
     week_end: Date | None = None
     week_number: int | None = None
     days: list[PublicScheduleDayResponse] = Field(default_factory=list)
+
+
+class PublicEntityRef(BaseModel):
+    id: int
+    name: str
+
+
+class PublicScheduleIndexResponse(BaseModel):
+    groups: list[PublicEntityRef] = Field(default_factory=list)
+    teachers: list[PublicEntityRef] = Field(default_factory=list)
+    rooms: list[PublicEntityRef] = Field(default_factory=list)
+    weeks: list[int] = Field(default_factory=list)
+    latest_week: int | None = None

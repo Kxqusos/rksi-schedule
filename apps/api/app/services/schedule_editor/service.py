@@ -9,11 +9,17 @@ from app.schemas.schedule_edit import (
     LessonCreateRequest,
     LessonResponse,
     LessonUpdateRequest,
+    PublicEntityRef,
     PublicScheduleDayResponse,
+    PublicScheduleIndexResponse,
     PublicScheduleWeekResponse,
     ScheduleProblemResponse,
     ScheduleSlotRoomResponse,
 )
+
+PUBLIC_ENTITY_TYPES = ("group", "teacher", "room")
+# One cache key per (entity_type, entity_id, week); see core/cache.ScheduleCache.
+CacheKey = tuple[str, int, int]
 from app.services.auth.permissions import Actor
 from app.services.schedule_editor import mappers, repository
 from app.services.schedule_editor.problems import (
@@ -30,9 +36,13 @@ __all__ = [
     "ConflictError",
     "LessonMutationResult",
     "LessonNotFoundError",
+    "PUBLIC_ENTITY_TYPES",
     "create_lesson",
     "delete_lesson",
     "get_latest_public_week",
+    "get_latest_week_number",
+    "get_public_schedule_index",
+    "get_public_week_for_entity",
     "list_lessons_by_slot",
     "list_schedule_problems",
     "update_lesson",
@@ -43,6 +53,7 @@ __all__ = [
 class LessonMutationResult:
     lesson: LessonResponse
     warnings: list[ScheduleProblemResponse]
+    cache_keys: list[CacheKey]
 
 
 class ConflictError(Exception):
@@ -92,7 +103,10 @@ def create_lesson(session, payload: LessonCreateRequest, actor: Actor) -> Lesson
     _ensure_group_rules(session, group_ids={group.id}, dates={payload.date}, week_numbers={payload.week_number})
     _audit(session, action="create", lesson=lesson, actor=actor, payload=payload.model_dump(mode="json"))
     lesson_response = _lesson_response(session, lesson)
-    return LessonMutationResult(lesson=lesson_response, warnings=_warnings_for_lesson(session, lesson))
+    cache_keys = _lesson_cache_keys(
+        group_id=lesson.group_id, teacher_id=lesson.teacher_id, room_id=lesson.room_id, week_number=lesson.week_number
+    )
+    return LessonMutationResult(lesson=lesson_response, warnings=_warnings_for_lesson(session, lesson), cache_keys=cache_keys)
 
 
 def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: Actor) -> LessonMutationResult:
@@ -104,6 +118,7 @@ def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: 
     original_date = lesson.lesson_date
     original_week_number = lesson.week_number
     original_room_id = lesson.room_id
+    original_teacher_id = lesson.teacher_id
     changed_fields = payload.model_fields_set
 
     group_id = lesson.group_id
@@ -175,20 +190,35 @@ def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: 
         )
     _audit(session, action="update", lesson=lesson, actor=actor, payload=payload.model_dump(mode="json", exclude_unset=True))
     lesson_response = _lesson_response(session, lesson)
-    return LessonMutationResult(lesson=lesson_response, warnings=_warnings_for_lesson(session, lesson))
+    cache_keys = _merge_cache_keys(
+        _lesson_cache_keys(
+            group_id=original_group_id,
+            teacher_id=original_teacher_id,
+            room_id=original_room_id,
+            week_number=original_week_number,
+        ),
+        _lesson_cache_keys(
+            group_id=lesson.group_id, teacher_id=lesson.teacher_id, room_id=lesson.room_id, week_number=lesson.week_number
+        ),
+    )
+    return LessonMutationResult(lesson=lesson_response, warnings=_warnings_for_lesson(session, lesson), cache_keys=cache_keys)
 
 
-def delete_lesson(session, lesson_id: int, actor: Actor) -> None:
+def delete_lesson(session, lesson_id: int, actor: Actor) -> list[CacheKey]:
     lesson = repository.get_lesson_by_id(session, lesson_id)
     if lesson is None:
         raise LessonNotFoundError()
     group_id = lesson.group_id
     lesson_date = lesson.lesson_date
     week_number = lesson.week_number
+    cache_keys = _lesson_cache_keys(
+        group_id=group_id, teacher_id=lesson.teacher_id, room_id=lesson.room_id, week_number=week_number
+    )
     _audit(session, action="delete", lesson=lesson, actor=actor, payload={"source_lesson_id": lesson.source_lesson_id})
     session.delete(lesson)
     session.flush()
     _ensure_group_rules(session, group_ids={group_id}, dates={lesson_date}, week_numbers={week_number})
+    return cache_keys
 
 
 def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleSlotRoomResponse]:
@@ -262,6 +292,83 @@ def get_latest_public_week(session) -> PublicScheduleWeekResponse:
             for index, day_date in enumerate(week_start + timedelta(days=offset) for offset in range(7))
         ],
     )
+
+
+def get_latest_week_number(session) -> int | None:
+    latest_date = repository.get_latest_lesson_date(session)
+    if latest_date is None:
+        return None
+    return repository.get_latest_week_number_for_date(session, latest_date)
+
+
+def get_public_schedule_index(session) -> PublicScheduleIndexResponse:
+    groups = repository.get_all_groups_ordered(session)
+    teachers = repository.get_teachers_ordered(session)
+    rooms = repository.get_rooms_ordered_all(session)
+    weeks = sorted(
+        {int(week) for week in repository.get_distinct_week_numbers(session) if week is not None}
+    )
+    return PublicScheduleIndexResponse(
+        groups=[PublicEntityRef(id=group.id, name=group.source_name) for group in groups if group.source_name],
+        teachers=[PublicEntityRef(id=teacher.id, name=teacher.source_name) for teacher in teachers if teacher.source_name],
+        rooms=[PublicEntityRef(id=room.id, name=room.source_name) for room in rooms if room.source_name],
+        weeks=weeks,
+        latest_week=get_latest_week_number(session),
+    )
+
+
+def get_public_week_for_entity(session, entity_type: str, entity_id: int, week_number: int) -> PublicScheduleWeekResponse:
+    if entity_type == "group":
+        lessons = repository.get_lessons_for_group_and_week(session, entity_id, week_number)
+    elif entity_type == "teacher":
+        lessons = repository.get_lessons_for_teacher_and_week(session, entity_id, week_number)
+    elif entity_type == "room":
+        lessons = repository.get_lessons_for_room_and_week(session, entity_id, week_number)
+    else:
+        raise ValueError(f"unknown entity_type: {entity_type}")
+    return _build_public_week(session, lessons, week_number=week_number)
+
+
+def _build_public_week(session, lessons: list[Lesson], *, week_number: int) -> PublicScheduleWeekResponse:
+    if not lessons:
+        return PublicScheduleWeekResponse(week_number=week_number)
+    reference_date = min(lesson.lesson_date for lesson in lessons)
+    week_start = reference_date - timedelta(days=reference_date.weekday())
+    week_end = week_start + timedelta(days=6)
+    lessons_by_date = {week_start + timedelta(days=offset): [] for offset in range(7)}
+    for lesson in lessons:
+        lessons_by_date.setdefault(lesson.lesson_date, []).append(_lesson_response(session, lesson))
+    return mappers.public_schedule_week_response(
+        week_start=week_start,
+        week_end=week_end,
+        week_number=week_number,
+        days=[
+            mappers.public_schedule_day_response(
+                date=day_date,
+                weekday=index + 1,
+                lessons=lessons_by_date.get(day_date, []),
+            )
+            for index, day_date in enumerate(week_start + timedelta(days=offset) for offset in range(7))
+        ],
+    )
+
+
+def _lesson_cache_keys(*, group_id: int, teacher_id: int | None, room_id: int | None, week_number: int) -> list[CacheKey]:
+    keys: list[CacheKey] = [("group", group_id, week_number)]
+    if teacher_id is not None:
+        keys.append(("teacher", teacher_id, week_number))
+    if room_id is not None:
+        keys.append(("room", room_id, week_number))
+    return keys
+
+
+def _merge_cache_keys(*key_lists: list[CacheKey]) -> list[CacheKey]:
+    merged: list[CacheKey] = []
+    for keys in key_lists:
+        for key in keys:
+            if key not in merged:
+                merged.append(key)
+    return merged
 
 
 def _latest_import_id(session) -> int:

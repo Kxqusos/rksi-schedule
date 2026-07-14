@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: Schedule RKS API
+  title: Schedule RKSI API
   version: 0.1.0
 paths:
   "/auth/login":
@@ -376,6 +376,121 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/PublicScheduleWeekResponse"
+  "/schedule/public/index":
+    get:
+      tags:
+      - schedule
+      summary: Get Public Index
+      operationId: get_public_index_schedule_public_index_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PublicScheduleIndexResponse"
+  "/schedule/public/by-group":
+    get:
+      tags:
+      - schedule
+      summary: Get Public By Group
+      operationId: get_public_by_group_schedule_public_by_group_get
+      parameters:
+      - name: group_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          title: Group Id
+      - name: week
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Week
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PublicScheduleWeekResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/schedule/public/by-teacher":
+    get:
+      tags:
+      - schedule
+      summary: Get Public By Teacher
+      operationId: get_public_by_teacher_schedule_public_by_teacher_get
+      parameters:
+      - name: teacher_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          title: Teacher Id
+      - name: week
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Week
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PublicScheduleWeekResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/schedule/public/by-room":
+    get:
+      tags:
+      - schedule
+      summary: Get Public By Room
+      operationId: get_public_by_room_schedule_public_by_room_get
+      parameters:
+      - name: room_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          title: Room Id
+      - name: week
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Week
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PublicScheduleWeekResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
   "/schedule/lessons":
     get:
       tags:
@@ -1767,6 +1882,19 @@ components:
       - access_token
       - user
       title: LoginResponse
+    PublicEntityRef:
+      properties:
+        id:
+          type: integer
+          title: Id
+        name:
+          type: string
+          title: Name
+      type: object
+      required:
+      - id
+      - name
+      title: PublicEntityRef
     PublicScheduleDayResponse:
       properties:
         date:
@@ -1786,6 +1914,35 @@ components:
       - date
       - weekday
       title: PublicScheduleDayResponse
+    PublicScheduleIndexResponse:
+      properties:
+        groups:
+          items:
+            "$ref": "#/components/schemas/PublicEntityRef"
+          type: array
+          title: Groups
+        teachers:
+          items:
+            "$ref": "#/components/schemas/PublicEntityRef"
+          type: array
+          title: Teachers
+        rooms:
+          items:
+            "$ref": "#/components/schemas/PublicEntityRef"
+          type: array
+          title: Rooms
+        weeks:
+          items:
+            type: integer
+          type: array
+          title: Weeks
+        latest_week:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Latest Week
+      type: object
+      title: PublicScheduleIndexResponse
     PublicScheduleWeekResponse:
       properties:
         week_start:

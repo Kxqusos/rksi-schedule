@@ -129,6 +129,30 @@ def get_lessons_for_group_and_week(session, group_id: int, week_number: int) -> 
     ).all()
 
 
+def get_lessons_for_teacher_and_week(session, teacher_id: int, week_number: int) -> list[Lesson]:
+    return session.scalars(
+        select(Lesson)
+        .where(Lesson.teacher_id == teacher_id, Lesson.week_number == week_number)
+        .order_by(Lesson.lesson_date, Lesson.time_slot)
+    ).all()
+
+
+def get_lessons_for_room_and_week(session, room_id: int, week_number: int) -> list[Lesson]:
+    return session.scalars(
+        select(Lesson)
+        .where(Lesson.room_id == room_id, Lesson.week_number == week_number)
+        .order_by(Lesson.lesson_date, Lesson.time_slot)
+    ).all()
+
+
+def get_teachers_ordered(session) -> list[Teacher]:
+    return session.scalars(select(Teacher).order_by(Teacher.source_name)).all()
+
+
+def get_rooms_ordered_all(session) -> list[Room]:
+    return session.scalars(select(Room).order_by(Room.source_name)).all()
+
+
 def get_lessons_for_group_and_date(session, group_id: int, lesson_date) -> list[Lesson]:
     return session.scalars(
         select(Lesson)

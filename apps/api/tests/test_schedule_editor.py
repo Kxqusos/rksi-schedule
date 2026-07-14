@@ -121,6 +121,78 @@ def test_public_latest_week_returns_latest_calendar_week_without_auth(tmp_path):
         assert latest_lessons[0]["teacher_name"] == "Latest Teacher"
 
 
+def test_public_index_lists_entities_and_weeks_without_auth(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'public_index.db'}"
+    migrate_database(database_url)
+    _seed_public_week_lessons(database_url)
+    app.state.database_url = database_url
+    with TestClient(app) as client:
+        response = client.get("/schedule/public/index")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert {group["name"] for group in body["groups"]} >= {"PUBLIC-OLD", "PUBLIC-LATEST"}
+        assert {teacher["name"] for teacher in body["teachers"]} >= {"Old Teacher", "Latest Teacher"}
+        assert {room["name"] for room in body["rooms"]} >= {"100/1", "200/1"}
+        assert body["weeks"] == [8, 9]
+        assert body["latest_week"] == 9
+
+
+def test_public_by_group_teacher_room_return_entity_week_without_auth(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'public_entity.db'}"
+    migrate_database(database_url)
+    _seed_public_week_lessons(database_url)
+    app.state.database_url = database_url
+    with TestClient(app) as client:
+        index = client.get("/schedule/public/index").json()
+        group_id = next(group["id"] for group in index["groups"] if group["name"] == "PUBLIC-LATEST")
+        teacher_id = next(teacher["id"] for teacher in index["teachers"] if teacher["name"] == "Latest Teacher")
+        room_id = next(room["id"] for room in index["rooms"] if room["name"] == "200/1")
+
+        # Explicit week 9
+        by_group = client.get("/schedule/public/by-group", params={"group_id": group_id, "week": 9}).json()
+        assert by_group["week_number"] == 9
+        lessons = [lesson for day in by_group["days"] for lesson in day["lessons"]]
+        assert [lesson["subject"] for lesson in lessons] == ["Latest subject"]
+
+        # Default week falls back to the latest (9)
+        by_teacher = client.get("/schedule/public/by-teacher", params={"teacher_id": teacher_id}).json()
+        teacher_lessons = [lesson for day in by_teacher["days"] for lesson in day["lessons"]]
+        assert [lesson["teacher_name"] for lesson in teacher_lessons] == ["Latest Teacher"]
+
+        by_room = client.get("/schedule/public/by-room", params={"room_id": room_id, "week": 9}).json()
+        room_lessons = [lesson for day in by_room["days"] for lesson in day["lessons"]]
+        assert [lesson["room_name"] for lesson in room_lessons] == ["200/1"]
+
+        # A group that has no lessons in the requested week yields an empty grid
+        old_group_id = next(group["id"] for group in index["groups"] if group["name"] == "PUBLIC-OLD")
+        empty = client.get("/schedule/public/by-group", params={"group_id": old_group_id, "week": 9}).json()
+        assert [lesson for day in empty["days"] for lesson in day["lessons"]] == []
+
+
+def test_lesson_cache_keys_are_scoped_per_entity():
+    from app.services.schedule_editor.service import _lesson_cache_keys, _merge_cache_keys
+
+    assert _lesson_cache_keys(group_id=1, teacher_id=2, room_id=3, week_number=7) == [
+        ("group", 1, 7),
+        ("teacher", 2, 7),
+        ("room", 3, 7),
+    ]
+    # No teacher/room -> only the group key.
+    assert _lesson_cache_keys(group_id=1, teacher_id=None, room_id=None, week_number=7) == [("group", 1, 7)]
+
+    # An update moving group 1 -> 5 invalidates both group keys, dedups the
+    # unchanged teacher key, and never touches an unrelated group.
+    merged = _merge_cache_keys(
+        _lesson_cache_keys(group_id=1, teacher_id=2, room_id=None, week_number=7),
+        _lesson_cache_keys(group_id=5, teacher_id=2, room_id=None, week_number=7),
+    )
+    assert ("group", 1, 7) in merged
+    assert ("group", 5, 7) in merged
+    assert ("group", 99, 7) not in merged
+    assert merged.count(("teacher", 2, 7)) == 1
+
+
 def test_operator_can_list_lessons_by_date_and_slot(tmp_path, monkeypatch):
     database_url = f"sqlite:///{tmp_path / 'lesson_slice.db'}"
     migrate_database(database_url)
