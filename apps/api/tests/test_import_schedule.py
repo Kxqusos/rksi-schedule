@@ -113,3 +113,64 @@ def test_import_does_not_create_class_hour_for_empty_monday(tmp_path):
     assert result.empty_day_count == 1
     assert lessons == 0
     assert class_hours == 0
+
+
+def test_import_keeps_only_first_teacher_and_room_of_a_lesson_entry(tmp_path):
+    # Deliberate limitation (backend-layering §8.2.3): a single lesson entry
+    # with multiple teachers/auditories keeps only teachers[0]/auditories[0].
+    db_path = tmp_path / "multi.db"
+    database_url = f"sqlite:///{db_path}"
+    migrate_database(database_url)
+    payload = {
+        "timetable": [
+            {
+                "date_start": "24-02-2026",
+                "week_number": 7,
+                "groups": [
+                    {
+                        "group_name": "MULTI",
+                        "course": 1,
+                        "faculty": "",
+                        "days": [
+                            {
+                                "weekday": 2,
+                                "lessons": [
+                                    {
+                                        "subject": "Химия",
+                                        "type": "",
+                                        "subgroup": 0,
+                                        "time_start": "08:00",
+                                        "time_end": "09:30",
+                                        "time": 1,
+                                        "week": 7,
+                                        "date": "24-02-2026",
+                                        "teachers": [
+                                            {"teacher_name": "Первый", "teacher_id": "T1", "teacher_post": ""},
+                                            {"teacher_name": "Второй", "teacher_id": "T2", "teacher_post": ""},
+                                        ],
+                                        "auditories": [
+                                            {"auditory_name": "101"},
+                                            {"auditory_name": "202"},
+                                        ],
+                                        "Lesson_ID_Num": "MULTI_1",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    import_schedule_from_payload(payload)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        teachers = {row[0] for row in conn.execute("select source_name from teachers").fetchall()}
+        rooms = {row[0] for row in conn.execute("select source_name from rooms").fetchall()}
+    finally:
+        conn.close()
+
+    assert teachers == {"Первый"}
+    assert rooms == {"101"}

@@ -52,7 +52,6 @@ def import_schedule_from_payload(payload: Any, source_path: str = "<payload>") -
         with session.begin():
             import_record = ScheduleImport(
                 source_path=source_path,
-                raw_payload=payload if isinstance(payload, dict) else {"documents": payload},
             )
             session.add(import_record)
             session.flush()
@@ -93,7 +92,6 @@ def import_schedule_from_payload(payload: Any, source_path: str = "<payload>") -
                                     time_slot=int(lesson_payload["time"]),
                                     subgroup=int(lesson_payload.get("subgroup", 0)),
                                     lesson_type=str(lesson_payload.get("type", "")),
-                                    raw_payload=lesson_payload,
                                 )
                                 session.add(lesson)
                                 lesson_count += 1
@@ -229,6 +227,11 @@ def _get_or_create_teacher(session, payload: dict[str, Any]) -> Teacher | None:
     teachers = payload.get("teachers") or []
     if not teachers:
         return None
+    # Only the first teacher of a lesson entry is kept — a deliberate limitation
+    # (backend-layering §8.2.3). In the source data multi-teacher cases (e.g.
+    # foreign-language subgroup splits) arrive as separate top-level lesson
+    # entries, not multiple teachers in one entry. If the export format ever
+    # emits >1 teacher per entry this must be revisited.
     teacher_payload = teachers[0]
     teacher_id = str(teacher_payload.get("teacher_id", "")).strip()
     teacher = repository.find_teacher_by_source_id(session, teacher_id)
@@ -248,6 +251,8 @@ def _get_or_create_room(session, payload: dict[str, Any]) -> Room | None:
     auditories = payload.get("auditories") or []
     if not auditories:
         return None
+    # Only the first auditory of a lesson entry is kept — same deliberate
+    # limitation as _get_or_create_teacher (backend-layering §8.2.3).
     room_payload = auditories[0]
     room_name = str(room_payload.get("auditory_name", "")).strip()
     room = repository.find_room_by_name(session, room_name)

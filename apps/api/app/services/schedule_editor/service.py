@@ -86,7 +86,6 @@ def create_lesson(session, payload: LessonCreateRequest, actor: Actor) -> Lesson
         time_slot=payload.time_slot,
         subgroup=payload.subgroup,
         lesson_type=payload.lesson_type,
-        raw_payload=payload.model_dump(mode="json"),
     )
     session.add(lesson)
     session.flush()
@@ -166,7 +165,6 @@ def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: 
         swapped_lesson.room_id = original_room_id
     if payload.lesson_type is not None:
         lesson.lesson_type = payload.lesson_type
-    lesson.raw_payload = {**lesson.raw_payload, **payload.model_dump(mode="json", exclude_unset=True)}
     session.flush()
     if changed_fields - {"room_name"}:
         _ensure_group_rules(

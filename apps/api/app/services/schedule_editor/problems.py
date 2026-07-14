@@ -300,25 +300,13 @@ def _counts_toward_group_pair_limits(lesson: Lesson, subject_lookup: SubjectLook
 
 def _is_additional_lesson(lesson: Lesson, subject_lookup: SubjectLookup) -> bool:
     subject = subject_lookup(lesson.subject_id)
-    raw_payload = lesson.raw_payload if isinstance(lesson.raw_payload, dict) else {}
-    labels = [
-        lesson.lesson_type,
-        raw_payload.get("type", ""),
-        raw_payload.get("subject", ""),
-        subject.source_name if subject else "",
-    ]
+    labels = [lesson.lesson_type, subject.source_name if subject else ""]
     return any(_is_additional_lesson_label(str(label)) for label in labels if label is not None)
 
 
 def _is_class_hour_lesson(lesson: Lesson, subject_lookup: SubjectLookup) -> bool:
     subject = subject_lookup(lesson.subject_id)
-    raw_payload = lesson.raw_payload if isinstance(lesson.raw_payload, dict) else {}
-    labels = [
-        lesson.lesson_type,
-        raw_payload.get("type", ""),
-        raw_payload.get("subject", ""),
-        subject.source_name if subject else "",
-    ]
+    labels = [lesson.lesson_type, subject.source_name if subject else ""]
     return any(_is_class_hour_lesson_label(str(label)) for label in labels if label is not None)
 
 

@@ -39,7 +39,6 @@ class ScheduleImport(Base):
     lesson_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     empty_day_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    raw_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class Group(Base):
@@ -161,7 +160,6 @@ class Lesson(Base):
     time_slot: Mapped[int] = mapped_column(Integer, nullable=False)
     subgroup: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     lesson_type: Mapped[str] = mapped_column(String(50), nullable=False, default="")
-    raw_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class AuditLog(Base):

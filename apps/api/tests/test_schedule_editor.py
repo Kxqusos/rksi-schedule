@@ -790,7 +790,6 @@ def _seed_group_lessons(database_url: str, *, group_name: str, slots: tuple[int,
                         time_slot=slot,
                         subgroup=0,
                         lesson_type="",
-                        raw_payload={},
                     )
                 )
 
@@ -807,7 +806,6 @@ def _seed_public_week_lessons(database_url: str) -> None:
                 group_count=0,
                 lesson_count=0,
                 empty_day_count=0,
-                raw_payload={},
             )
             old_group = Group(source_name="PUBLIC-OLD", course=0, faculty="")
             latest_group = Group(source_name="PUBLIC-LATEST", course=0, faculty="")
@@ -848,7 +846,6 @@ def _seed_public_week_lessons(database_url: str) -> None:
                         time_slot=1,
                         subgroup=0,
                         lesson_type="",
-                        raw_payload={},
                     ),
                     Lesson(
                         source_lesson_id="public-latest-lesson",
@@ -865,7 +862,6 @@ def _seed_public_week_lessons(database_url: str) -> None:
                         time_slot=2,
                         subgroup=0,
                         lesson_type="",
-                        raw_payload={},
                     ),
                 ]
             )
@@ -918,7 +914,6 @@ def _seed_foreign_language_split(database_url: str) -> None:
                         time_slot=1,
                         subgroup=subgroup,
                         lesson_type="",
-                        raw_payload={},
                     )
                 )
 
@@ -958,7 +953,6 @@ def _seed_group_week_lessons(database_url: str, *, group_name: str, lesson_count
                             time_slot=slot,
                             subgroup=0,
                             lesson_type="",
-                            raw_payload={},
                         )
                     )
                     created += 1
@@ -995,7 +989,6 @@ def _seed_subgroup_day_limit_lessons(database_url: str) -> None:
                         time_slot=slot,
                         subgroup=subgroup,
                         lesson_type="",
-                        raw_payload={},
                     )
                 )
 
@@ -1037,7 +1030,6 @@ def _seed_subgroup_week_limit_lessons(database_url: str) -> None:
                                 time_slot=slot,
                                 subgroup=subgroup,
                                 lesson_type="",
-                                raw_payload={},
                             )
                         )
                     created += 1
@@ -1075,7 +1067,6 @@ def _seed_additional_lesson(database_url: str, *, group_name: str) -> None:
                     time_slot=3,
                     subgroup=0,
                     lesson_type="",
-                    raw_payload={"subject": "Доп.занятие"},
                 )
             )
 
@@ -1123,7 +1114,6 @@ def _seed_group_with_class_hour_over_raw_limit(database_url: str) -> None:
                             time_slot=slot,
                             subgroup=0,
                             lesson_type="",
-                            raw_payload={},
                         )
                     )
             room = Room(source_name="CLASS-HOUR-LIMIT-class-hour")
@@ -1145,7 +1135,6 @@ def _seed_group_with_class_hour_over_raw_limit(database_url: str) -> None:
                     time_slot=4,
                     subgroup=0,
                     lesson_type="",
-                    raw_payload={"subject": "Классный час"},
                 )
             )
 
