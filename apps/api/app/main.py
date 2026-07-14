@@ -24,7 +24,7 @@ from app.services.import_schedule import import_schedule_from_payload
 async def lifespan(app: FastAPI):
     database_url = getattr(app.state, "database_url", None) or get_database_url()
     init_engine(database_url)
-    bootstrap_admin(database_url)
+    bootstrap_admin()
     init_cache(get_redis_url())
     yield
     dispose_engine()
@@ -54,11 +54,9 @@ def health() -> dict[str, str]:
 
 @app.post("/imports/schedule", response_model=ImportScheduleResponse)
 async def import_schedule(request: Request) -> dict[str, int]:
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
     payload = await _read_import_payload(request)
     result = import_schedule_from_payload(
         payload,
-        database_url=database_url,
         source_path="api:/imports/schedule",
     )
     return asdict(result)

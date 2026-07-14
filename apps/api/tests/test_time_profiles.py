@@ -191,7 +191,7 @@ def _bootstrap_and_get_admin_token(database_url: str, monkeypatch) -> str:
     monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
     app.state.database_url = database_url
-    bootstrap_admin(database_url)
+    bootstrap_admin()
     client = TestClient(app)
     return client.post(
         "/auth/login",

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.bootstrap import bootstrap_admin
 from app.services.import_schedule import import_schedule_from_json
-from conftest import migrate_database
+from conftest import bind_engine, migrate_database
 
 
 def test_admin_can_create_list_and_delete_teacher(tmp_path, monkeypatch):
@@ -194,7 +194,7 @@ def test_operator_can_mark_teacher_absent_and_filter_available_teachers(tmp_path
 
 def _seed_import(database_url: str) -> None:
     source = Path(__file__).resolve().parents[3] / "7.json"
-    import_schedule_from_json(source, database_url=database_url)
+    import_schedule_from_json(source)
 
 
 def _bootstrap_and_get_admin_token(database_url: str, monkeypatch) -> str:
@@ -202,7 +202,7 @@ def _bootstrap_and_get_admin_token(database_url: str, monkeypatch) -> str:
     monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
     app.state.database_url = database_url
-    bootstrap_admin(database_url)
+    bootstrap_admin()
     with TestClient(app) as client:
         return client.post(
             "/auth/login",
@@ -212,6 +212,7 @@ def _bootstrap_and_get_admin_token(database_url: str, monkeypatch) -> str:
 
 def _bootstrap_and_get_operator_token(database_url: str, monkeypatch) -> str:
     admin_token = _bootstrap_and_get_admin_token(database_url, monkeypatch)
+    bind_engine(database_url)
     client = TestClient(app)
     client.post(
         "/users",

@@ -144,7 +144,7 @@ def test_operator_can_exclude_and_restore_room(tmp_path, monkeypatch):
 
 def _seed_import(database_url: str) -> None:
     source = Path(__file__).resolve().parents[3] / "7.json"
-    import_schedule_from_json(source, database_url=database_url)
+    import_schedule_from_json(source)
 
 
 def _bootstrap_and_get_admin_token(database_url: str, monkeypatch) -> str:
@@ -152,7 +152,7 @@ def _bootstrap_and_get_admin_token(database_url: str, monkeypatch) -> str:
     monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
     app.state.database_url = database_url
-    bootstrap_admin(database_url)
+    bootstrap_admin()
     with TestClient(app) as client:
         return client.post(
             "/auth/login",

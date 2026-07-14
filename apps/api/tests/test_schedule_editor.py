@@ -756,13 +756,13 @@ def test_foreign_language_split_subgroups_are_not_multiple_teacher_error(tmp_pat
 
 def _seed_import(database_url: str) -> None:
     source = Path(__file__).resolve().parents[3] / "7.json"
-    import_schedule_from_json(source, database_url=database_url)
+    import_schedule_from_json(source)
 
 
 def _seed_group_lessons(database_url: str, *, group_name: str, slots: tuple[int, ...], room_prefix: str) -> None:
-    from app.db.engine import ensure_engine
+    from conftest import bind_engine
 
-    session_factory = ensure_engine(database_url)
+    session_factory = bind_engine(database_url)
     with session_factory() as session:
         with session.begin():
             group = Group(source_name=group_name, course=0, faculty="")
@@ -796,9 +796,9 @@ def _seed_group_lessons(database_url: str, *, group_name: str, slots: tuple[int,
 
 
 def _seed_public_week_lessons(database_url: str) -> None:
-    from app.db.engine import ensure_engine
+    from conftest import bind_engine
 
-    session_factory = ensure_engine(database_url)
+    session_factory = bind_engine(database_url)
     with session_factory() as session:
         with session.begin():
             schedule_import = ScheduleImport(
@@ -885,9 +885,9 @@ def _teacher_by_source_id(database_url: str, source_teacher_id: str) -> dict:
 
 
 def _seed_foreign_language_split(database_url: str) -> None:
-    from app.db.engine import ensure_engine
+    from conftest import bind_engine
 
-    session_factory = ensure_engine(database_url)
+    session_factory = bind_engine(database_url)
     with session_factory() as session:
         with session.begin():
             group = Group(source_name="LANG-SPLIT", course=0, faculty="")
@@ -924,9 +924,9 @@ def _seed_foreign_language_split(database_url: str) -> None:
 
 
 def _seed_group_week_lessons(database_url: str, *, group_name: str, lesson_count: int) -> None:
-    from app.db.engine import ensure_engine
+    from conftest import bind_engine
 
-    session_factory = ensure_engine(database_url)
+    session_factory = bind_engine(database_url)
     with session_factory() as session:
         with session.begin():
             group = Group(source_name=group_name, course=0, faculty="")
@@ -965,9 +965,9 @@ def _seed_group_week_lessons(database_url: str, *, group_name: str, lesson_count
 
 
 def _seed_subgroup_day_limit_lessons(database_url: str) -> None:
-    from app.db.engine import ensure_engine
+    from conftest import bind_engine
 
-    session_factory = ensure_engine(database_url)
+    session_factory = bind_engine(database_url)
     with session_factory() as session:
         with session.begin():
             group = Group(source_name="SUBGROUP-DAY", course=0, faculty="")
@@ -1001,9 +1001,9 @@ def _seed_subgroup_day_limit_lessons(database_url: str) -> None:
 
 
 def _seed_subgroup_week_limit_lessons(database_url: str) -> None:
-    from app.db.engine import ensure_engine
+    from conftest import bind_engine
 
-    session_factory = ensure_engine(database_url)
+    session_factory = bind_engine(database_url)
     with session_factory() as session:
         with session.begin():
             group = Group(source_name="SUBGROUP-WEEK", course=0, faculty="")
@@ -1044,9 +1044,9 @@ def _seed_subgroup_week_limit_lessons(database_url: str) -> None:
 
 
 def _seed_additional_lesson(database_url: str, *, group_name: str) -> None:
-    from app.db.engine import ensure_engine
+    from conftest import bind_engine
 
-    session_factory = ensure_engine(database_url)
+    session_factory = bind_engine(database_url)
     with session_factory() as session:
         with session.begin():
             group = session.scalar(select(Group).where(Group.source_name == group_name))
@@ -1081,9 +1081,9 @@ def _seed_additional_lesson(database_url: str, *, group_name: str) -> None:
 
 
 def _seed_group_with_class_hour_over_raw_limit(database_url: str) -> None:
-    from app.db.engine import ensure_engine
+    from conftest import bind_engine
 
-    session_factory = ensure_engine(database_url)
+    session_factory = bind_engine(database_url)
     with session_factory() as session:
         with session.begin():
             group = Group(source_name="CLASS-HOUR-LIMIT", course=0, faculty="")
@@ -1155,7 +1155,7 @@ def _bootstrap_and_get_operator_token(database_url: str, monkeypatch) -> str:
     monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
     app.state.database_url = database_url
-    bootstrap_admin(database_url)
+    bootstrap_admin()
     with TestClient(app) as client:
         admin_token = client.post(
             "/auth/login",

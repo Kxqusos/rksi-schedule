@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from app.db.engine import ensure_engine
+from app.db.engine import get_session_factory
 from app.models import Group, Lesson, Room, ScheduleImport, Subject, Teacher
 from app.services.import_schedule import repository
 
@@ -33,14 +33,14 @@ class ImportResult:
     empty_day_count: int
 
 
-def import_schedule_from_json(source: Path, database_url: str) -> ImportResult:
+def import_schedule_from_json(source: Path) -> ImportResult:
     payload = json.loads(source.read_text(encoding="utf-8"))
-    return import_schedule_from_payload(payload, database_url=database_url, source_path=str(source))
+    return import_schedule_from_payload(payload, source_path=str(source))
 
 
-def import_schedule_from_payload(payload: Any, database_url: str, source_path: str = "<payload>") -> ImportResult:
+def import_schedule_from_payload(payload: Any, source_path: str = "<payload>") -> ImportResult:
     documents = _normalize_root(payload)
-    session_factory = ensure_engine(database_url)
+    session_factory = get_session_factory()
 
     timetable_count = 0
     group_count = 0

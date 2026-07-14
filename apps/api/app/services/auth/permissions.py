@@ -3,10 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Header, HTTPException
 
-from app.core.config import get_database_url
-from app.db.engine import ensure_engine
+from app.db.engine import get_session_factory
 from app.services.auth.security import InvalidTokenError, decode_access_token
 
 
@@ -22,26 +21,24 @@ class Actor:
 
 
 def require_editor_actor(
-    request: Request,
     authorization: Annotated[str | None, Header(alias="Authorization")] = None,
 ) -> Actor:
-    resolved_actor = _resolve_actor(request, authorization=authorization)
+    resolved_actor = _resolve_actor(authorization=authorization)
     if resolved_actor.role not in EDITOR_ROLES:
         raise HTTPException(status_code=403, detail="operator or admin role is required")
     return resolved_actor
 
 
 def require_admin_actor(
-    request: Request,
     authorization: Annotated[str | None, Header(alias="Authorization")] = None,
 ) -> Actor:
-    resolved_actor = _resolve_actor(request, authorization=authorization)
+    resolved_actor = _resolve_actor(authorization=authorization)
     if resolved_actor.role != ADMIN_ROLE:
         raise HTTPException(status_code=403, detail="admin role is required")
     return resolved_actor
 
 
-def _resolve_actor(request: Request, *, authorization: str | None) -> Actor:
+def _resolve_actor(*, authorization: str | None) -> Actor:
     if not authorization:
         raise HTTPException(status_code=401, detail="authorization is required")
 
@@ -53,11 +50,9 @@ def _resolve_actor(request: Request, *, authorization: str | None) -> Actor:
     except InvalidTokenError as exc:
         raise HTTPException(status_code=401, detail="invalid or expired token") from exc
 
-    database_url = getattr(request.app.state, "database_url", None) or get_database_url()
-    session_factory = ensure_engine(database_url)
     from app.services.users import get_user_by_id
 
-    with session_factory() as session:
+    with get_session_factory()() as session:
         user = get_user_by_id(session, int(token_payload.get("sub", 0)))
     if user is None:
         raise HTTPException(status_code=401, detail="user not found")

@@ -12,7 +12,7 @@ def test_bootstrap_admin_can_login_and_create_user_with_display_name_and_passwor
     monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
     app.state.database_url = database_url
-    bootstrap_admin(database_url)
+    bootstrap_admin()
     with TestClient(app) as client:
 
         login_response = client.post(
@@ -62,7 +62,7 @@ def test_operator_token_cannot_create_users(tmp_path, monkeypatch):
     monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
     app.state.database_url = database_url
-    bootstrap_admin(database_url)
+    bootstrap_admin()
     with TestClient(app) as client:
 
         admin_token = client.post(
@@ -106,7 +106,7 @@ def test_wrong_password_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
     app.state.database_url = database_url
-    bootstrap_admin(database_url)
+    bootstrap_admin()
     with TestClient(app) as client:
 
         response = client.post("/auth/login", json={"username": "root", "password": "wrong"})
@@ -121,7 +121,7 @@ def test_admin_can_view_credentials_and_revoke_user(tmp_path, monkeypatch):
     monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
     app.state.database_url = database_url
-    bootstrap_admin(database_url)
+    bootstrap_admin()
     with TestClient(app) as client:
 
         admin_token = client.post(
@@ -183,7 +183,7 @@ def test_admin_can_change_user_password(tmp_path, monkeypatch):
     monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
     app.state.database_url = database_url
-    bootstrap_admin(database_url)
+    bootstrap_admin()
     with TestClient(app) as client:
 
         admin_token = client.post(
@@ -233,7 +233,7 @@ def test_operator_cannot_change_user_password(tmp_path, monkeypatch):
     monkeypatch.setenv("ADMIN_DISPLAY_NAME", "Root Admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "root-password")
     app.state.database_url = database_url
-    bootstrap_admin(database_url)
+    bootstrap_admin()
     with TestClient(app) as client:
 
         admin_token = client.post(
