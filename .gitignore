@@ -18,3 +18,4 @@ dist/
 build/
 *.pyc
 *.db
+.playwright-mcp/
