@@ -16,6 +16,7 @@ from app.services.rooms import (
     exclude_room,
     list_rooms,
     restore_room,
+    mappers,
 )
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
@@ -26,7 +27,10 @@ def get_rooms(
     actor: Annotated[Actor, Depends(require_editor_actor)],
     session: Annotated[Session, Depends(get_session)],
 ) -> list[dict]:
-    return [room.model_dump(mode="json") for room in list_rooms(session)]
+    return [
+        mappers.room_to_response(room, lesson_count).model_dump(mode="json")
+        for room, lesson_count in list_rooms(session)
+    ]
 
 
 @router.post("", response_model=RoomResponse, status_code=status.HTTP_201_CREATED)
@@ -37,10 +41,10 @@ def post_room(
 ) -> dict:
     try:
         with session.begin():
-            result = create_room(session, payload, actor)
+            room = create_room(session, payload.name, actor)
     except DuplicateRoomError as exc:
         raise HTTPException(status_code=409, detail=f"room '{exc.name}' already exists") from exc
-    return result.model_dump(mode="json")
+    return mappers.room_to_response(room, 0).model_dump(mode="json")
 
 
 @router.post("/{room_id}/exclusion", response_model=RoomResponse)
@@ -52,10 +56,10 @@ def post_room_exclusion(
 ) -> dict:
     try:
         with session.begin():
-            result = exclude_room(session, room_id, payload, actor)
+            room, lesson_count = exclude_room(session, room_id, payload.reason, actor)
     except RoomNotFoundError as exc:
         raise HTTPException(status_code=404, detail="room not found") from exc
-    return result.model_dump(mode="json")
+    return mappers.room_to_response(room, lesson_count).model_dump(mode="json")
 
 
 @router.delete("/{room_id}/exclusion", response_model=RoomResponse)
@@ -66,10 +70,10 @@ def delete_room_exclusion(
 ) -> dict:
     try:
         with session.begin():
-            result = restore_room(session, room_id, actor)
+            room, lesson_count = restore_room(session, room_id, actor)
     except RoomNotFoundError as exc:
         raise HTTPException(status_code=404, detail="room not found") from exc
-    return result.model_dump(mode="json")
+    return mappers.room_to_response(room, lesson_count).model_dump(mode="json")
 
 
 @router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT)

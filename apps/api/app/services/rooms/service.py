@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from app.models import AuditLog, Room
-from app.schemas.room import RoomCreateRequest, RoomExclusionRequest
 from app.services.auth.permissions import Actor
-from app.services.rooms import mappers, repository
+from app.services.rooms import repository
 
 
 class DuplicateRoomError(Exception):
@@ -16,16 +15,16 @@ class RoomNotFoundError(Exception):
     pass
 
 
-def list_rooms(session) -> list:
+def list_rooms(session) -> list[tuple[Room, int]]:
     lesson_counts = repository.get_room_lesson_counts(session)
     rooms = repository.get_all_rooms(session)
-    return [mappers.room_to_response(room, int(lesson_counts.get(room.id, 0))) for room in rooms]
+    return [(room, int(lesson_counts.get(room.id, 0))) for room in rooms]
 
 
-def create_room(session, payload: RoomCreateRequest, actor: Actor):
-    name = payload.name.strip()
+def create_room(session, name: str, actor: Actor) -> Room:
+    name = name.strip()
     if not name:
-        raise DuplicateRoomError(payload.name)
+        raise DuplicateRoomError(name)
     if repository.find_room_by_name(session, name) is not None:
         raise DuplicateRoomError(name)
 
@@ -33,7 +32,7 @@ def create_room(session, payload: RoomCreateRequest, actor: Actor):
     session.add(room)
     session.flush()
     _audit(session, action="create", room=room, actor=actor, payload={"name": name})
-    return mappers.room_to_response(room, 0)
+    return room
 
 
 def delete_room(session, room_id: int, actor: Actor) -> None:
@@ -54,13 +53,13 @@ def delete_room(session, room_id: int, actor: Actor) -> None:
     session.delete(room)
 
 
-def exclude_room(session, room_id: int, payload: RoomExclusionRequest, actor: Actor):
+def exclude_room(session, room_id: int, reason: str, actor: Actor) -> tuple[Room, int]:
     room = repository.get_room_by_id(session, room_id)
     if room is None:
         raise RoomNotFoundError()
 
     room.is_excluded = True
-    room.exclusion_reason = payload.reason.strip()
+    room.exclusion_reason = reason.strip()
     session.flush()
     lesson_count = repository.get_room_lesson_count(session, room_id)
     _audit(
@@ -70,10 +69,10 @@ def exclude_room(session, room_id: int, payload: RoomExclusionRequest, actor: Ac
         actor=actor,
         payload={"name": room.source_name, "reason": room.exclusion_reason},
     )
-    return mappers.room_to_response(room, lesson_count)
+    return room, lesson_count
 
 
-def restore_room(session, room_id: int, actor: Actor):
+def restore_room(session, room_id: int, actor: Actor) -> tuple[Room, int]:
     room = repository.get_room_by_id(session, room_id)
     if room is None:
         raise RoomNotFoundError()
@@ -90,7 +89,7 @@ def restore_room(session, room_id: int, actor: Actor):
         actor=actor,
         payload={"name": room.source_name, "previous_reason": previous_reason},
     )
-    return mappers.room_to_response(room, lesson_count)
+    return room, lesson_count
 
 
 def _audit(session, *, action: str, room: Room, actor: Actor, payload: dict) -> None:
