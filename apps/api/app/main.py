@@ -1,23 +1,20 @@
-from dataclasses import asdict
-import json
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.cache import get_cache, init_cache
+from app.core.cache import init_cache
 from app.core.config import get_cors_origins, get_database_url, get_redis_url
 from app.db.engine import dispose_engine, init_engine
 from app.routers.auth import router as auth_router
 from app.routers.groups import router as groups_router
+from app.routers.imports import router as imports_router
 from app.routers.rooms import router as rooms_router
 from app.routers.schedule import router as schedule_router
 from app.routers.teachers import router as teachers_router
 from app.routers.time_profiles import router as time_profiles_router
 from app.routers.users import router as users_router
-from app.schemas.import_schedule import ImportScheduleResponse
 from app.services.bootstrap import bootstrap_admin
-from app.services.import_schedule import import_schedule_from_payload
 
 
 @asynccontextmanager
@@ -40,6 +37,7 @@ app.add_middleware(
 )
 app.include_router(auth_router)
 app.include_router(groups_router)
+app.include_router(imports_router)
 app.include_router(rooms_router)
 app.include_router(schedule_router)
 app.include_router(teachers_router)
@@ -50,33 +48,3 @@ app.include_router(users_router)
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
-
-
-@app.post("/imports/schedule", response_model=ImportScheduleResponse)
-async def import_schedule(request: Request) -> dict[str, int]:
-    payload = await _read_import_payload(request)
-    result = import_schedule_from_payload(
-        payload,
-        source_path="api:/imports/schedule",
-    )
-    get_cache().invalidate_all()
-    return asdict(result)
-
-
-async def _read_import_payload(request: Request):
-    content_type = request.headers.get("content-type", "")
-    if content_type.startswith("multipart/form-data"):
-        form = await request.form()
-        uploaded_file = form.get("file")
-        if uploaded_file is None or not hasattr(uploaded_file, "read"):
-            raise HTTPException(status_code=400, detail="multipart field 'file' is required")
-        raw_payload = await uploaded_file.read()
-        try:
-            return json.loads(raw_payload)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=400, detail="uploaded file must contain valid JSON") from exc
-
-    try:
-        return await request.json()
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail="request body must contain valid JSON") from exc

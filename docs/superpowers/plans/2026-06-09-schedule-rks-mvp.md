@@ -1,5 +1,25 @@
 # Schedule RKS MVP Implementation Plan
 
+> **⚠️ SUPERSEDED (2026-07-20) — historical intent only, does NOT match the codebase.**
+> This is the original June planning doc. The MVP was built, but the implementation
+> diverged from the file/module layout proposed below. Do not use it as a map of the
+> current code. Notable divergences:
+> - **Models:** single `apps/api/app/models.py`, not per-entity `app/models/*.py`. Schema
+>   changes go through Alembic (`apps/api/alembic/versions/`), not `db/migrations/*.sql`.
+> - **Import contract:** no `normalizer.py`/`validator.py`/`import_payload.py`/
+>   `docs/import-format.md`/`sample-data/` — import lives in
+>   `services/import_schedule/{service,repository}.py`; normalization is inline.
+> - **Import endpoint:** `POST /imports/schedule` in `routers/imports.py`, guarded by
+>   `require_editor_actor` (operator/admin). Accepts raw JSON body or multipart file.
+> - **Auth:** Bearer JWT via FastAPI `HTTPBearer`; roles `operator`/`admin` in a `roles`
+>   table. See `services/auth/`.
+> - For the current backend architecture and conventions see
+>   `docs/architecture/backend-layering-refactor.md`, `CLAUDE.md`, and `AGENTS.md`.
+>
+> _Original planning text preserved below unchanged for history._
+
+---
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build an MVP for college schedule management with JSON import, operator/admin editing, and PostgreSQL-backed persistence.

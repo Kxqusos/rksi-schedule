@@ -192,7 +192,7 @@ export default function Home() {
         ) : activeSection === "Профили времени" ? (
           <TimeProfilesPage accessToken={session.accessToken} />
         ) : activeSection === "Импорт JSON" ? (
-          <ImportPage />
+          <ImportPage accessToken={session.accessToken} />
         ) : activeSection === "Пользователи и роли" ? (
           <UsersPage currentUser={session.user} accessToken={session.accessToken} />
         ) : (
@@ -2342,7 +2342,7 @@ type ImportApiResult = {
   empty_day_count: number;
 };
 
-function ImportPage() {
+function ImportPage({ accessToken }: { accessToken: string }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewSummary, setPreviewSummary] = useState<ImportSummary | null>(null);
@@ -2429,6 +2429,7 @@ function ImportPage() {
 
       const response = await fetch(`${apiBaseUrl}/imports/schedule`, {
         method: "POST",
+        headers: buildAuthHeaders(accessToken),
         body: formData,
       });
 
