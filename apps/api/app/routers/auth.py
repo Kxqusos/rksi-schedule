@@ -9,7 +9,7 @@ from app.db.session import get_session
 from app.schemas.user import LoginRequest, LoginResponse, UserResponse
 from app.services.auth.permissions import Actor, require_editor_actor
 from app.services.auth.security import create_access_token
-from app.services.users import InvalidCredentialsError, authenticate_user, get_user_by_id
+from app.services.users import InvalidCredentialsError, authenticate_user, get_user_by_id, mappers
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -17,13 +17,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/login", response_model=LoginResponse)
 def login(payload: LoginRequest, session: Annotated[Session, Depends(get_session)]) -> dict:
     try:
-        user = authenticate_user(session, payload.username, payload.password)
+        user, role_name = authenticate_user(session, payload.username, payload.password)
     except InvalidCredentialsError as exc:
         raise HTTPException(status_code=401, detail="invalid username or password") from exc
 
     response = LoginResponse(
         access_token=create_access_token({"sub": user.id}),
-        user=user,
+        user=mappers.user_to_response(user, role_name),
     )
     return response.model_dump(mode="json")
 
@@ -36,7 +36,8 @@ def me(
     if actor.user_id is None:
         return {"role": actor.role, "display_name": actor.name}
 
-    user = get_user_by_id(session, actor.user_id)
-    if user is None:
+    row = get_user_by_id(session, actor.user_id)
+    if row is None:
         raise HTTPException(status_code=401, detail="user not found")
-    return user.model_dump(mode="json")
+    user, role_name = row
+    return mappers.user_to_response(user, role_name).model_dump(mode="json")

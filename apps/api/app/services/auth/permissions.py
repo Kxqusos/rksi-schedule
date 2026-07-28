@@ -64,9 +64,10 @@ def _resolve_actor(session: Session, credentials: HTTPAuthorizationCredentials |
     # uses expire_on_commit=False, so the user's attributes stay usable after
     # this block commits. Single session per request (no extra pool checkout).
     with session.begin():
-        user = get_user_by_id(session, int(token_payload.get("sub", 0)))
-    if user is None:
+        row = get_user_by_id(session, int(token_payload.get("sub", 0)))
+    if row is None:
         raise HTTPException(status_code=401, detail="user not found")
+    user, role_name = row
     if not user.is_active:
         raise HTTPException(status_code=401, detail="user is inactive")
-    return Actor(role=user.role, name=user.display_name, user_id=user.id)
+    return Actor(role=role_name, name=user.display_name, user_id=user.id)
