@@ -1,6 +1,8 @@
 # Service Layer Schema-Boundary Refactor Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Status: implemented (2026-07-28).** All 8 tasks done. All 7 backend domains (rooms, groups, teachers, time_profiles, users, schedule_editor service + problems linter) now return domain objects; `mappers.py` is the sole `app.schemas` boundary and routers own the mapping call. Gate results: `grep -rl "app.schemas" apps/api/app/services/ | grep -v mappers.py` empty, full suite `65 passed`, `openapi.yaml` regenerated with no diff (API contract unchanged).
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make the code actually satisfy the backend-layering plan's §2/§3 rule — `services/` never import or build Pydantic `schemas/`; `mappers.py` is the single place domain objects become response schemas, and routers own that mapping call.
 
@@ -47,12 +49,12 @@ grep -n "app.schemas" apps/api/app/services/<domain>/service.py   # expect: no o
   - `delete_room` unchanged (returns None)
 - mappers gain: `room_to_response(room, lesson_count)` stays as-is (already takes domain input).
 
-- [ ] **Step 1: Confirm the regression net is green before touching anything**
+- [x] **Step 1: Confirm the regression net is green before touching anything**
 
 Run: `docker compose exec -T api env -u DATABASE_URL /workspace/.venv/bin/pytest tests/test_rooms.py -q`
 Expected: PASS (baseline).
 
-- [ ] **Step 2: Rewrite `rooms/service.py` to drop schema imports and return domain objects**
+- [x] **Step 2: Rewrite `rooms/service.py` to drop schema imports and return domain objects**
 
 Remove `from app.schemas.room import ...`. New bodies (mapper calls deleted; return ORM/tuples):
 
@@ -105,7 +107,7 @@ def restore_room(session, room_id: int, actor: Actor) -> tuple[Room, int]:
 
 `delete_room` stays as-is. Note `create_room`'s empty-name guard now uses `name` (already stripped) in the error.
 
-- [ ] **Step 3: Update `routers/rooms.py` to unpack the request and call the mapper**
+- [x] **Step 3: Update `routers/rooms.py` to unpack the request and call the mapper**
 
 Add `from app.services.rooms import mappers`. Change bodies:
 
@@ -145,12 +147,12 @@ def delete_room_exclusion(room_id, actor, session) -> dict:
 
 (Keep the full existing `Annotated[...]` param signatures; only bodies/return-mapping shown here for brevity.)
 
-- [ ] **Step 4: Run the verification recipe**
+- [x] **Step 4: Run the verification recipe**
 
 Run both commands from "Verification recipe" with `<domain>=rooms`.
 Expected: tests PASS; grep prints nothing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/app/services/rooms/service.py apps/api/app/routers/rooms.py
@@ -171,11 +173,11 @@ git commit -m "refactor(rooms): service returns domain objects, router owns mapp
 - `set_homeroom_teacher(session, group_id: int, teacher_id: int | None, actor)` → domain aggregate.
 - `delete_group`, `clear_homeroom_teacher` unchanged (already schema-free).
 
-- [ ] **Step 1: Read `groups/mappers.py` and `schemas/group.py`** to learn the mapper's input shape and the two request DTOs' fields. Baseline test run.
-- [ ] **Step 2: Drop `from app.schemas.group import ...` from service.py**; change `update_group`/`set_homeroom_teacher` to take primitives (or a `@dataclass GroupUpdate`), and return the domain aggregate the mapper consumes instead of calling the mapper.
-- [ ] **Step 3: Update `routers/groups.py`** to unpack `payload` fields and call `mappers.group_to_response(...).model_dump(mode="json")`.
-- [ ] **Step 4: Run verification recipe (`<domain>=groups`).** Expected PASS + empty grep.
-- [ ] **Step 5: Commit** `refactor(groups): service returns domain objects, router owns mapping (layering §2/§3)`
+- [x] **Step 1: Read `groups/mappers.py` and `schemas/group.py`** to learn the mapper's input shape and the two request DTOs' fields. Baseline test run.
+- [x] **Step 2: Drop `from app.schemas.group import ...` from service.py**; change `update_group`/`set_homeroom_teacher` to take primitives (or a `@dataclass GroupUpdate`), and return the domain aggregate the mapper consumes instead of calling the mapper.
+- [x] **Step 3: Update `routers/groups.py`** to unpack `payload` fields and call `mappers.group_to_response(...).model_dump(mode="json")`.
+- [x] **Step 4: Run verification recipe (`<domain>=groups`).** Expected PASS + empty grep.
+- [x] **Step 5: Commit** `refactor(groups): service returns domain objects, router owns mapping (layering §2/§3)`
 
 ---
 
@@ -189,11 +191,11 @@ git commit -m "refactor(rooms): service returns domain objects, router owns mapp
 - `list_teachers`, `list_available_teachers` → return the ORM/aggregate `teacher_to_response` consumes (read `teachers/mappers.py` first).
 - Keep `teacher_absence_for_slot`, `teacher_absences_by_teacher`, `absence_matches_slot` (already schema-free, return ORM/dict).
 
-- [ ] **Step 1:** Read `teachers/mappers.py` + `schemas/teacher.py`. Baseline test run.
-- [ ] **Step 2:** Drop schema import; add `@dataclass AbsenceInput`; services return ORM/aggregates, not responses.
-- [ ] **Step 3:** Router unpacks `TeacherCreateRequest`/`TeacherAbsenceCreateRequest` into primitives/`AbsenceInput` and calls `mappers.*` for responses.
-- [ ] **Step 4:** Verification recipe (`teachers`). Expected PASS + empty grep.
-- [ ] **Step 5:** Commit `refactor(teachers): service returns domain objects, router owns mapping (layering §2/§3)`
+- [x] **Step 1:** Read `teachers/mappers.py` + `schemas/teacher.py`. Baseline test run.
+- [x] **Step 2:** Drop schema import; add `@dataclass AbsenceInput`; services return ORM/aggregates, not responses.
+- [x] **Step 3:** Router unpacks `TeacherCreateRequest`/`TeacherAbsenceCreateRequest` into primitives/`AbsenceInput` and calls `mappers.*` for responses.
+- [x] **Step 4:** Verification recipe (`teachers`). Expected PASS + empty grep.
+- [x] **Step 5:** Commit `refactor(teachers): service returns domain objects, router owns mapping (layering §2/§3)`
 
 ---
 
@@ -203,11 +205,11 @@ git commit -m "refactor(rooms): service returns domain objects, router owns mapp
 
 `DayTimeProfileCreateRequest`/`WeekTimeProfileCreateRequest` carry nested slot/day lists — introduce `@dataclass DayProfileInput`/`WeekProfileInput` (with plain nested dataclasses or lists of tuples) in service.py; the router converts the Request DTO into them. Services return ORM `DayTimeProfile`/`WeekTimeProfile` (+ any aggregate the mapper needs).
 
-- [ ] **Step 1:** Read `time_profiles/mappers.py` + `schemas/time_profile.py`. Baseline test run.
-- [ ] **Step 2:** Drop schema import; add input dataclasses; `create_*`/`update_*` accept them and return ORM; delete mapper calls from service.
-- [ ] **Step 3:** Router builds input dataclasses from payload, calls `mappers.*_to_response(...).model_dump(mode="json")`.
-- [ ] **Step 4:** Verification recipe (`time_profiles`). Expected PASS + empty grep.
-- [ ] **Step 5:** Commit `refactor(time_profiles): service returns domain objects, router owns mapping (layering §2/§3)`
+- [x] **Step 1:** Read `time_profiles/mappers.py` + `schemas/time_profile.py`. Baseline test run.
+- [x] **Step 2:** Drop schema import; add input dataclasses; `create_*`/`update_*` accept them and return ORM; delete mapper calls from service.
+- [x] **Step 3:** Router builds input dataclasses from payload, calls `mappers.*_to_response(...).model_dump(mode="json")`.
+- [x] **Step 4:** Verification recipe (`time_profiles`). Expected PASS + empty grep.
+- [x] **Step 5:** Commit `refactor(time_profiles): service returns domain objects, router owns mapping (layering §2/§3)`
 
 ---
 
@@ -220,11 +222,11 @@ git commit -m "refactor(rooms): service returns domain objects, router owns mapp
 - `list_users`, `get_user_credentials` → return ORM/aggregate the mapper consumes.
 - `authenticate_user`, `get_user_by_id`, `revoke_user`, `change_user_password` already schema-free — leave; confirm they return ORM `User`, not a response.
 
-- [ ] **Step 1:** Read `users/mappers.py` + `schemas/user.py`. Baseline test run. Note `auth/routers` also call `get_user_by_id`/`authenticate_user` — verify their return types don't change.
-- [ ] **Step 2:** Drop `from app.schemas.user import UserCreateRequest`; add `@dataclass NewUser`; `create_user` takes it and returns `User`.
-- [ ] **Step 3:** Router (`routers/users.py`) unpacks `UserCreateRequest` → `NewUser`, calls `mappers.user_to_response(...)`. Check `routers/auth.py` still maps correctly (it builds `LoginResponse`/`UserResponse` — those already live in the router, fine).
-- [ ] **Step 4:** Verification recipe (`users`) plus `pytest tests/test_auth_users.py -q`. Expected PASS + empty grep.
-- [ ] **Step 5:** Commit `refactor(users): service returns domain objects, router owns mapping (layering §2/§3)`
+- [x] **Step 1:** Read `users/mappers.py` + `schemas/user.py`. Baseline test run. Note `auth/routers` also call `get_user_by_id`/`authenticate_user` — verify their return types don't change.
+- [x] **Step 2:** Drop `from app.schemas.user import UserCreateRequest`; add `@dataclass NewUser`; `create_user` takes it and returns `User`.
+- [x] **Step 3:** Router (`routers/users.py`) unpacks `UserCreateRequest` → `NewUser`, calls `mappers.user_to_response(...)`. Check `routers/auth.py` still maps correctly (it builds `LoginResponse`/`UserResponse` — those already live in the router, fine).
+- [x] **Step 4:** Verification recipe (`users`) plus `pytest tests/test_auth_users.py -q`. Expected PASS + empty grep.
+- [x] **Step 5:** Commit `refactor(users): service returns domain objects, router owns mapping (layering §2/§3)`
 
 ---
 
@@ -245,13 +247,13 @@ This service builds `PublicScheduleWeekResponse`, `PublicScheduleIndexResponse`,
   - `create_lesson`/`update_lesson`/`delete_lesson` take primitives / a `@dataclass LessonWrite` (from the Request DTO) and return domain results carrying cache_keys + domain lesson + domain warnings.
 - `mappers.py` gains `public_week_to_response`, `public_index_to_response`, `slot_room_to_response`, `lesson_result_to_response`, `problem_to_response` (see Task 7).
 
-- [ ] **Step 1:** Read `schedule_editor/service.py` fully and `schemas/schedule_edit.py`. Baseline: `pytest tests/test_schedule_editor.py -q`.
-- [ ] **Step 2:** Add domain dataclasses to `service.py`; convert the public-week/index/slot builders and `_lesson_response` to return domain dataclasses (no schema import for these paths). Move field-shaping into `mappers.py`.
-- [ ] **Step 3:** Add mapper functions in `mappers.py` that turn the domain dataclasses into the existing response schemas (identical field values).
-- [ ] **Step 4:** Convert `create_lesson`/`update_lesson`/`delete_lesson` inputs to `@dataclass LessonWrite`; router builds it from `LessonCreateRequest`/`LessonUpdateRequest`.
-- [ ] **Step 5:** Update `routers/schedule.py`: unpack requests, call `mappers.*` for every response, keep cache invalidation exactly as-is.
-- [ ] **Step 6:** Verification: `pytest tests/test_schedule_editor.py -q` PASS; `grep -n app.schemas apps/api/app/services/schedule_editor/service.py` empty.
-- [ ] **Step 7:** Commit `refactor(schedule_editor): domain objects for public/mutation paths, mappers own responses (layering §2/§3)`
+- [x] **Step 1:** Read `schedule_editor/service.py` fully and `schemas/schedule_edit.py`. Baseline: `pytest tests/test_schedule_editor.py -q`.
+- [x] **Step 2:** Add domain dataclasses to `service.py`; convert the public-week/index/slot builders and `_lesson_response` to return domain dataclasses (no schema import for these paths). Move field-shaping into `mappers.py`.
+- [x] **Step 3:** Add mapper functions in `mappers.py` that turn the domain dataclasses into the existing response schemas (identical field values).
+- [x] **Step 4:** Convert `create_lesson`/`update_lesson`/`delete_lesson` inputs to `@dataclass LessonWrite`; router builds it from `LessonCreateRequest`/`LessonUpdateRequest`.
+- [x] **Step 5:** Update `routers/schedule.py`: unpack requests, call `mappers.*` for every response, keep cache invalidation exactly as-is.
+- [x] **Step 6:** Verification: `pytest tests/test_schedule_editor.py -q` PASS; `grep -n app.schemas apps/api/app/services/schedule_editor/service.py` empty.
+- [x] **Step 7:** Commit `refactor(schedule_editor): domain objects for public/mutation paths, mappers own responses (layering §2/§3)`
 
 ---
 
@@ -268,11 +270,11 @@ This service builds `PublicScheduleWeekResponse`, `PublicScheduleIndexResponse`,
 - `mappers.problem_to_response(ScheduleProblem) -> ScheduleProblemResponse`.
 - `_warnings_for_lesson` feeds Task 6's `LessonMutationResult.warnings` — keep it returning `ScheduleProblem`; the lesson-result mapper maps each warning.
 
-- [ ] **Step 1:** Baseline `pytest tests/test_schedule_editor.py -q`. Read `problems.py` fully.
-- [ ] **Step 2:** Define `@dataclass ScheduleProblem`; mechanically replace `ScheduleProblemResponse(` construction with `ScheduleProblem(` and the type annotations throughout `problems.py`; drop `from app.schemas...` from `problems.py`.
-- [ ] **Step 3:** Add `mappers.problem_to_response`; router `get_problems` maps `list_schedule_problems` output; the lesson-mutation mapper (Task 6) maps `warnings`.
-- [ ] **Step 4:** Verification: `pytest tests/test_schedule_editor.py -q` PASS; `grep -n app.schemas apps/api/app/services/schedule_editor/problems.py` empty.
-- [ ] **Step 5:** Commit `refactor(schedule_editor): domain ScheduleProblem, mapper builds response (layering §2/§3)`
+- [x] **Step 1:** Baseline `pytest tests/test_schedule_editor.py -q`. Read `problems.py` fully.
+- [x] **Step 2:** Define `@dataclass ScheduleProblem`; mechanically replace `ScheduleProblemResponse(` construction with `ScheduleProblem(` and the type annotations throughout `problems.py`; drop `from app.schemas...` from `problems.py`.
+- [x] **Step 3:** Add `mappers.problem_to_response`; router `get_problems` maps `list_schedule_problems` output; the lesson-mutation mapper (Task 6) maps `warnings`.
+- [x] **Step 4:** Verification: `pytest tests/test_schedule_editor.py -q` PASS; `grep -n app.schemas apps/api/app/services/schedule_editor/problems.py` empty.
+- [x] **Step 5:** Commit `refactor(schedule_editor): domain ScheduleProblem, mapper builds response (layering §2/§3)`
 
 ---
 
@@ -280,10 +282,10 @@ This service builds `PublicScheduleWeekResponse`, `PublicScheduleIndexResponse`,
 
 **Files:** `openapi.yaml` (regenerate — expect no diff), `docs/architecture/backend-layering-refactor.md`.
 
-- [ ] **Step 1:** Full suite: `docker compose exec -T api env -u DATABASE_URL /workspace/.venv/bin/pytest tests -q`. Expected `65 passed`.
-- [ ] **Step 2:** Global invariant — no service builds/imports schemas:
+- [x] **Step 1:** Full suite: `docker compose exec -T api env -u DATABASE_URL /workspace/.venv/bin/pytest tests -q`. Expected `65 passed`.
+- [x] **Step 2:** Global invariant — no service builds/imports schemas:
   `grep -rn "app.schemas" apps/api/app/services/ | grep -v "/mappers.py:"`
   Expected: no output.
-- [ ] **Step 3:** Regenerate `openapi.yaml` with the documented command; `git diff --stat openapi.yaml` should be empty (responses unchanged). If it differs, a response shape drifted — investigate before committing.
-- [ ] **Step 4:** Update the status line of `docs/architecture/backend-layering-refactor.md` to state §2/§3 (services schema-free, mappers as sole boundary) is now actually enforced across all domains, with today's date.
-- [ ] **Step 5:** Commit `docs: record service-layer schema boundary now enforced (layering §2/§3)`
+- [x] **Step 3:** Regenerate `openapi.yaml` with the documented command; `git diff --stat openapi.yaml` should be empty (responses unchanged). If it differs, a response shape drifted — investigate before committing.
+- [x] **Step 4:** Update the status line of `docs/architecture/backend-layering-refactor.md` to state §2/§3 (services schema-free, mappers as sole boundary) is now actually enforced across all domains, with today's date.
+- [x] **Step 5:** Commit `docs: record service-layer schema boundary now enforced (layering §2/§3)`
