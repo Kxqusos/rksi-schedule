@@ -117,7 +117,10 @@ def get_problems(
     actor: Annotated[Actor, Depends(require_editor_actor)],
     session: Annotated[Session, Depends(get_session)],
 ) -> list[dict]:
-    return [problem.model_dump(mode="json") for problem in list_schedule_problems(session)]
+    return [
+        mappers.schedule_problem_to_response(problem).model_dump(mode="json")
+        for problem in list_schedule_problems(session)
+    ]
 
 
 @router.post("/lessons", response_model=LessonMutationResponse, status_code=status.HTTP_201_CREATED)
@@ -154,7 +157,7 @@ def create_lesson(
     _invalidate(result.cache_keys)
     return {
         **mappers.lesson_view_to_response(result.lesson).model_dump(mode="json"),
-        "warnings": [warning.model_dump(mode="json") for warning in result.warnings],
+        "warnings": [mappers.schedule_problem_to_response(warning).model_dump(mode="json") for warning in result.warnings],
     }
 
 
@@ -197,7 +200,7 @@ def update_lesson(
     _invalidate(result.cache_keys)
     return {
         **mappers.lesson_view_to_response(result.lesson).model_dump(mode="json"),
-        "warnings": [warning.model_dump(mode="json") for warning in result.warnings],
+        "warnings": [mappers.schedule_problem_to_response(warning).model_dump(mode="json") for warning in result.warnings],
     }
 
 

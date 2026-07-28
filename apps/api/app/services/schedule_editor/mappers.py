@@ -15,6 +15,7 @@ from app.schemas.schedule_edit import (
 )
 
 if TYPE_CHECKING:
+    from app.services.schedule_editor.problems import ScheduleProblem
     from app.services.schedule_editor.service import (
         LessonView,
         ScheduleDayView,
@@ -141,28 +142,16 @@ def schedule_index_view_to_response(view: ScheduleIndexView) -> PublicScheduleIn
     )
 
 
-def problem_to_response(
-    *,
-    severity: str,
-    code: str,
-    message: str,
-    date: Date | None = None,
-    week_number: int | None = None,
-    time_slot: int | None = None,
-    group_name: str | None = None,
-    teacher_name: str | None = None,
-    room_name: str | None = None,
-    lesson_ids: list[int] | None = None,
-) -> ScheduleProblemResponse:
+def schedule_problem_to_response(problem: ScheduleProblem) -> ScheduleProblemResponse:
     return ScheduleProblemResponse(
-        severity=severity,
-        code=code,
-        message=message,
-        date=date,
-        week_number=week_number,
-        time_slot=time_slot,
-        group_name=group_name,
-        teacher_name=teacher_name,
-        room_name=room_name,
-        lesson_ids=lesson_ids if lesson_ids is not None else [],
+        severity=problem.severity,
+        code=problem.code,
+        message=problem.message,
+        date=problem.date,
+        week_number=problem.week_number,
+        time_slot=problem.time_slot,
+        group_name=problem.group_name,
+        teacher_name=problem.teacher_name,
+        room_name=problem.room_name,
+        lesson_ids=list(problem.lesson_ids),
     )

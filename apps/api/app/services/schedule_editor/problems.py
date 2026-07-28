@@ -1,15 +1,33 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import date as Date
 
 from app.models import Group, Lesson, Subject
-from app.schemas.schedule_edit import ScheduleProblemResponse
-from app.services.schedule_editor import mappers, repository
+from app.services.schedule_editor import repository
 from app.services.teachers import absence_matches_slot, teacher_absences_by_teacher
 
 # Resolves a subject_id to its Subject (or None). Backed by a preloaded dict in
 # the bulk linter and by repository.get_subject_by_id in the per-mutation path.
 SubjectLookup = Callable[[int], "Subject | None"]
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduleProblem:
+    """Domain view of a schedule problem. Mirrors ScheduleProblemResponse; the
+    router maps it to the response schema via mappers.schedule_problem_to_response."""
+
+    severity: str
+    code: str
+    message: str
+    date: Date | None = None
+    week_number: int | None = None
+    time_slot: int | None = None
+    group_name: str | None = None
+    teacher_name: str | None = None
+    room_name: str | None = None
+    lesson_ids: list[int] = field(default_factory=list)
 
 
 MAX_GROUP_WEEK_LESSONS = 18
@@ -24,8 +42,8 @@ AGGREGATED_GROUP_PROBLEM_CODES = {
 }
 
 
-def list_schedule_problems(session) -> list[ScheduleProblemResponse]:
-    problems: list[ScheduleProblemResponse] = []
+def list_schedule_problems(session) -> list[ScheduleProblem]:
+    problems: list[ScheduleProblem] = []
     groups = repository.get_all_groups_ordered(session)
 
     # Preload everything once instead of querying per (group, week) / (group,
@@ -73,9 +91,9 @@ def list_schedule_problems(session) -> list[ScheduleProblemResponse]:
     )
 
 
-def _aggregate_group_problems(problems: list[ScheduleProblemResponse]) -> list[ScheduleProblemResponse]:
-    grouped: dict[str, list[ScheduleProblemResponse]] = {}
-    result: list[ScheduleProblemResponse] = []
+def _aggregate_group_problems(problems: list[ScheduleProblem]) -> list[ScheduleProblem]:
+    grouped: dict[str, list[ScheduleProblem]] = {}
+    result: list[ScheduleProblem] = []
     for problem in problems:
         if problem.code in AGGREGATED_GROUP_PROBLEM_CODES and problem.group_name:
             grouped.setdefault(problem.code, []).append(problem)
@@ -91,7 +109,7 @@ def _aggregate_group_problems(problems: list[ScheduleProblemResponse]) -> list[S
         for problem in code_problems:
             lesson_ids.extend(problem.lesson_ids)
         result.append(
-            mappers.problem_to_response(
+            ScheduleProblem(
                 severity=code_problems[0].severity,
                 code=code,
                 message=_aggregated_group_problem_message(code_problems),
@@ -105,7 +123,7 @@ def _aggregate_group_problems(problems: list[ScheduleProblemResponse]) -> list[S
     return result
 
 
-def _aggregated_group_problem_message(problems: list[ScheduleProblemResponse]) -> str:
+def _aggregated_group_problem_message(problems: list[ScheduleProblem]) -> str:
     code = problems[0].code
     header = _aggregated_group_problem_header(code)
     lines = [_aggregated_group_problem_line(problem) for problem in problems]
@@ -129,13 +147,13 @@ def _aggregated_group_problem_header(code: str) -> str:
     return headers.get(code, "У перечисленных групп есть проблема:")
 
 
-def _aggregated_group_problem_line(problem: ScheduleProblemResponse) -> str:
+def _aggregated_group_problem_line(problem: ScheduleProblem) -> str:
     group_name = problem.group_name or "Без группы"
     detail = _aggregated_group_problem_detail(problem)
     return f"{group_name}: {detail}"
 
 
-def _aggregated_group_problem_detail(problem: ScheduleProblemResponse) -> str:
+def _aggregated_group_problem_detail(problem: ScheduleProblem) -> str:
     if problem.code in {"group_week_limit_exceeded", "group_day_limit_exceeded"}:
         return problem.message.split(": ", 1)[1] if ": " in problem.message else problem.message
     if problem.code == "group_day_minimum_not_met":
@@ -147,7 +165,7 @@ def _aggregated_group_problem_detail(problem: ScheduleProblemResponse) -> str:
     return problem.message
 
 
-def _problem_location(problem: ScheduleProblemResponse) -> str:
+def _problem_location(problem: ScheduleProblem) -> str:
     parts = []
     if problem.date is not None:
         parts.append(_format_display_date(problem.date))
@@ -171,7 +189,7 @@ def _single_value(values):
     return unique_values[0] if len(unique_values) == 1 else None
 
 
-def _blocking_detail(problem: ScheduleProblemResponse) -> str:
+def _blocking_detail(problem: ScheduleProblem) -> str:
     details = {
         "group_week_limit_exceeded": "group week lesson limit exceeded",
         "group_day_limit_exceeded": "group day lesson limit exceeded",
@@ -184,7 +202,7 @@ def _blocking_detail(problem: ScheduleProblemResponse) -> str:
     return details.get(problem.code, problem.message)
 
 
-def _group_week_errors(session, group_id: int, week_number: int) -> list[ScheduleProblemResponse]:
+def _group_week_errors(session, group_id: int, week_number: int) -> list[ScheduleProblem]:
     lessons = repository.get_lessons_for_group_and_week(session, group_id, week_number)
     group = repository.get_group_by_id(session, group_id)
     return _group_week_problems(group, week_number, lessons, lambda sid: repository.get_subject_by_id(session, sid))
@@ -195,14 +213,14 @@ def _group_week_problems(
     week_number: int,
     lessons: list[Lesson],
     subject_lookup: SubjectLookup,
-) -> list[ScheduleProblemResponse]:
+) -> list[ScheduleProblem]:
     counted_lessons = [lesson for lesson in lessons if _counts_toward_group_pair_limits(lesson, subject_lookup)]
     actual_count = _weekly_pair_count(counted_lessons)
     if actual_count <= MAX_GROUP_WEEK_LESSONS:
         return []
     overage = actual_count - MAX_GROUP_WEEK_LESSONS
     return [
-        mappers.problem_to_response(
+        ScheduleProblem(
             severity="error",
             code="group_week_limit_exceeded",
             message=(
@@ -218,7 +236,7 @@ def _group_week_problems(
     ]
 
 
-def _group_day_errors(session, group_id: int, lesson_date) -> list[ScheduleProblemResponse]:
+def _group_day_errors(session, group_id: int, lesson_date) -> list[ScheduleProblem]:
     lessons = repository.get_lessons_for_group_and_date(session, group_id, lesson_date)
     group = repository.get_group_by_id(session, group_id)
     return _group_day_problems(group, lesson_date, lessons, lambda sid: repository.get_subject_by_id(session, sid))
@@ -229,7 +247,7 @@ def _group_day_problems(
     lesson_date,
     lessons: list[Lesson],
     subject_lookup: SubjectLookup,
-) -> list[ScheduleProblemResponse]:
+) -> list[ScheduleProblem]:
     if not lessons:
         return []
 
@@ -238,11 +256,11 @@ def _group_day_problems(
     lesson_ids = [lesson.id for lesson in lessons]
     counted_lesson_ids = [lesson.id for lesson in counted_lessons]
     actual_count = _daily_pair_count(counted_lessons)
-    problems: list[ScheduleProblemResponse] = []
+    problems: list[ScheduleProblem] = []
     if actual_count > MAX_GROUP_DAY_LESSONS:
         overage = actual_count - MAX_GROUP_DAY_LESSONS
         problems.append(
-            mappers.problem_to_response(
+            ScheduleProblem(
                 severity="error",
                 code="group_day_limit_exceeded",
                 message=(
@@ -258,7 +276,7 @@ def _group_day_problems(
         )
     if actual_count < MIN_GROUP_DAY_LESSONS:
         problems.append(
-            mappers.problem_to_response(
+            ScheduleProblem(
                 severity="error",
                 code="group_day_minimum_not_met",
                 message=f"У группы {group_name or ''} меньше {MIN_GROUP_DAY_LESSONS} пар в день.",
@@ -273,7 +291,7 @@ def _group_day_problems(
         missing_slots = [slot for slot in range(slots[0], slots[-1] + 1) if slot not in slots]
         if missing_slots:
             problems.append(
-                mappers.problem_to_response(
+                ScheduleProblem(
                     severity="error",
                     code="group_day_window",
                     message=f"У группы {group_name or ''} есть окно в расписании.",
@@ -320,7 +338,7 @@ def _is_class_hour_lesson_label(label: str) -> bool:
     return normalized == "классныйчас"
 
 
-def _group_slot_teacher_errors(session, group_id: int, lesson_date) -> list[ScheduleProblemResponse]:
+def _group_slot_teacher_errors(session, group_id: int, lesson_date) -> list[ScheduleProblem]:
     lessons = repository.get_lessons_for_group_and_date(session, group_id, lesson_date)
     group = repository.get_group_by_id(session, group_id)
     return _group_slot_teacher_problems(
@@ -333,8 +351,8 @@ def _group_slot_teacher_problems(
     lesson_date,
     lessons: list[Lesson],
     subject_lookup: SubjectLookup,
-) -> list[ScheduleProblemResponse]:
-    problems: list[ScheduleProblemResponse] = []
+) -> list[ScheduleProblem]:
+    problems: list[ScheduleProblem] = []
     lessons_by_slot: dict[int, list[Lesson]] = {}
     for lesson in lessons:
         lessons_by_slot.setdefault(lesson.time_slot, []).append(lesson)
@@ -345,7 +363,7 @@ def _group_slot_teacher_problems(
         if _is_foreign_language_subgroup_split(slot_lessons, subject_lookup):
             continue
         problems.append(
-            mappers.problem_to_response(
+            ScheduleProblem(
                 severity="error",
                 code="group_slot_multiple_teachers",
                 message=f"У группы {group.source_name if group else ''} два преподавателя на одну пару.",
@@ -381,7 +399,7 @@ def _group_word(count: int) -> str:
     return "групп"
 
 
-def _warnings_for_lesson(session, lesson: Lesson) -> list[ScheduleProblemResponse]:
+def _warnings_for_lesson(session, lesson: Lesson) -> list[ScheduleProblem]:
     warnings = _double_booked_teacher_warnings(session, lesson_date=lesson.lesson_date, time_slot=lesson.time_slot)
     warnings.extend(_double_booked_room_warnings(session, lesson_date=lesson.lesson_date, time_slot=lesson.time_slot))
     lesson_warnings = []
@@ -391,12 +409,12 @@ def _warnings_for_lesson(session, lesson: Lesson) -> list[ScheduleProblemRespons
     return lesson_warnings
 
 
-def _absent_teacher_errors(session) -> list[ScheduleProblemResponse]:
+def _absent_teacher_errors(session) -> list[ScheduleProblem]:
     lessons = repository.get_lessons_with_teacher(session)
     # Preload absences and teachers once instead of a per-lesson absence query.
     absences_by_teacher = teacher_absences_by_teacher(session)
     teachers_by_id = {teacher.id: teacher for teacher in repository.get_all_teachers(session)}
-    problems: list[ScheduleProblemResponse] = []
+    problems: list[ScheduleProblem] = []
     for lesson in lessons:
         if lesson.teacher_id is None:
             continue
@@ -413,7 +431,7 @@ def _absent_teacher_errors(session) -> list[ScheduleProblemResponse]:
         teacher = teachers_by_id.get(lesson.teacher_id)
         reason_suffix = f" Причина: {absence.reason}." if absence.reason else ""
         problems.append(
-            mappers.problem_to_response(
+            ScheduleProblem(
                 severity="error",
                 code="absent_teacher_scheduled",
                 message=(
@@ -429,10 +447,10 @@ def _absent_teacher_errors(session) -> list[ScheduleProblemResponse]:
     return problems
 
 
-def _excluded_room_errors(session) -> list[ScheduleProblemResponse]:
+def _excluded_room_errors(session) -> list[ScheduleProblem]:
     lessons = repository.get_lessons_with_room(session)
     rooms_by_id = {room.id: room for room in repository.get_all_rooms(session)}
-    problems: list[ScheduleProblemResponse] = []
+    problems: list[ScheduleProblem] = []
     for lesson in lessons:
         if lesson.room_id is None:
             continue
@@ -441,7 +459,7 @@ def _excluded_room_errors(session) -> list[ScheduleProblemResponse]:
             continue
         reason_suffix = f" Причина: {room.exclusion_reason}." if room.exclusion_reason else ""
         problems.append(
-            mappers.problem_to_response(
+            ScheduleProblem(
                 severity="error",
                 code="excluded_room_scheduled",
                 message=(
@@ -457,20 +475,20 @@ def _excluded_room_errors(session) -> list[ScheduleProblemResponse]:
     return problems
 
 
-def _double_booked_teacher_warnings(session, *, lesson_date=None, time_slot: int | None = None) -> list[ScheduleProblemResponse]:
+def _double_booked_teacher_warnings(session, *, lesson_date=None, time_slot: int | None = None) -> list[ScheduleProblem]:
     lessons = repository.get_lessons_with_teacher(session, lesson_date=lesson_date, time_slot=time_slot)
     grouped: dict[tuple[int, object, int], list[Lesson]] = {}
     for lesson in lessons:
         grouped.setdefault((lesson.teacher_id, lesson.lesson_date, lesson.time_slot), []).append(lesson)
 
-    warnings: list[ScheduleProblemResponse] = []
+    warnings: list[ScheduleProblem] = []
     for (teacher_id, date_value, slot), slot_lessons in grouped.items():
         group_ids = {lesson.group_id for lesson in slot_lessons}
         if len(group_ids) <= 1:
             continue
         teacher = repository.get_teacher_by_id(session, teacher_id)
         warnings.append(
-            mappers.problem_to_response(
+            ScheduleProblem(
                 severity="warning",
                 code="teacher_double_booked",
                 message=f"Преподаватель {teacher.source_name if teacher else ''} стоит у двух групп в одну пару.",
@@ -483,20 +501,20 @@ def _double_booked_teacher_warnings(session, *, lesson_date=None, time_slot: int
     return warnings
 
 
-def _double_booked_room_warnings(session, *, lesson_date=None, time_slot: int | None = None) -> list[ScheduleProblemResponse]:
+def _double_booked_room_warnings(session, *, lesson_date=None, time_slot: int | None = None) -> list[ScheduleProblem]:
     lessons = repository.get_lessons_with_room(session, lesson_date=lesson_date, time_slot=time_slot)
     grouped: dict[tuple[int, object, int], list[Lesson]] = {}
     for lesson in lessons:
         grouped.setdefault((lesson.room_id, lesson.lesson_date, lesson.time_slot), []).append(lesson)
 
-    warnings: list[ScheduleProblemResponse] = []
+    warnings: list[ScheduleProblem] = []
     for (room_id, date_value, slot), slot_lessons in grouped.items():
         group_ids = {lesson.group_id for lesson in slot_lessons}
         if len(group_ids) <= 1:
             continue
         room = repository.get_room_by_id(session, room_id)
         warnings.append(
-            mappers.problem_to_response(
+            ScheduleProblem(
                 severity="warning",
                 code="room_double_booked",
                 message=f"Кабинет {room.source_name if room else ''} стоит у двух групп в одну пару.",

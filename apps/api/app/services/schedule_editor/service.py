@@ -6,10 +6,6 @@ from datetime import timedelta
 from uuid import uuid4
 
 from app.models import AuditLog, Group, Lesson, Room, Subject, Teacher, TeacherAbsence
-# Only the problems path still depends on a response schema here; the lesson/public
-# read + mutation paths return the domain views below and are mapped in the router.
-# Task 7 finishes moving ScheduleProblemResponse out of the service (problems.py).
-from app.schemas.schedule_edit import ScheduleProblemResponse
 
 PUBLIC_ENTITY_TYPES = ("group", "teacher", "room")
 # One cache key per (entity_type, entity_id, week); see core/cache.ScheduleCache.
@@ -17,6 +13,7 @@ CacheKey = tuple[str, int, int]
 from app.services.auth.permissions import Actor
 from app.services.schedule_editor import repository
 from app.services.schedule_editor.problems import (
+    ScheduleProblem,
     _blocking_detail,
     _group_day_errors,
     _group_slot_teacher_errors,
@@ -101,7 +98,7 @@ class ScheduleIndexView:
 @dataclass(frozen=True, slots=True)
 class LessonMutationResult:
     lesson: LessonView
-    warnings: list[ScheduleProblemResponse]
+    warnings: list[ScheduleProblem]
     cache_keys: list[CacheKey]
 
 
