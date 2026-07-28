@@ -19,6 +19,7 @@ from app.services.teachers import (
     delete_teacher,
     list_available_teachers,
     list_teachers,
+    mappers,
 )
 
 router = APIRouter(prefix="/teachers", tags=["teachers"])
@@ -29,7 +30,10 @@ def get_teachers(
     actor: Annotated[Actor, Depends(require_editor_actor)],
     session: Annotated[Session, Depends(get_session)],
 ) -> list[dict]:
-    return [teacher.model_dump(mode="json") for teacher in list_teachers(session)]
+    return [
+        mappers.teacher_to_response(teacher, lesson_count, absences).model_dump(mode="json")
+        for teacher, lesson_count, absences in list_teachers(session)
+    ]
 
 
 @router.get("/available", response_model=list[TeacherResponse])
@@ -40,8 +44,10 @@ def get_available_teachers(
     session: Annotated[Session, Depends(get_session)],
 ) -> list[dict]:
     return [
-        teacher.model_dump(mode="json")
-        for teacher in list_available_teachers(session, lesson_date=date, time_slot=time_slot)
+        mappers.teacher_to_response(teacher, lesson_count, absences).model_dump(mode="json")
+        for teacher, lesson_count, absences in list_available_teachers(
+            session, lesson_date=date, time_slot=time_slot
+        )
     ]
 
 
@@ -53,10 +59,16 @@ def post_teacher(
 ) -> dict:
     try:
         with session.begin():
-            result = create_teacher(session, payload, actor)
+            teacher = create_teacher(
+                session,
+                name=payload.name,
+                teacher_id=payload.teacher_id,
+                post=payload.post,
+                actor=actor,
+            )
     except DuplicateTeacherError as exc:
         raise HTTPException(status_code=409, detail=f"teacher '{exc.teacher_id}' already exists") from exc
-    return result.model_dump(mode="json")
+    return mappers.teacher_to_response(teacher, 0, []).model_dump(mode="json")
 
 
 @router.post("/{teacher_id}/absences", response_model=TeacherAbsenceResponse, status_code=status.HTTP_201_CREATED)
@@ -68,10 +80,19 @@ def post_teacher_absence(
 ) -> dict:
     try:
         with session.begin():
-            result = create_teacher_absence(session, teacher_id, payload, actor)
+            absence = create_teacher_absence(
+                session,
+                teacher_id,
+                absence_date=payload.date,
+                all_day=payload.all_day,
+                time_slot_start=payload.time_slot_start,
+                time_slot_end=payload.time_slot_end,
+                reason=payload.reason,
+                actor=actor,
+            )
     except TeacherNotFoundError as exc:
         raise HTTPException(status_code=404, detail="teacher not found") from exc
-    return result.model_dump(mode="json")
+    return mappers.absence_to_response(absence).model_dump(mode="json")
 
 
 @router.delete("/{teacher_id}/absences/{absence_id}", status_code=status.HTTP_204_NO_CONTENT)

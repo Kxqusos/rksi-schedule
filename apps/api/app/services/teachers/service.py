@@ -3,10 +3,9 @@ from __future__ import annotations
 from datetime import date
 
 from app.models import AuditLog, Teacher, TeacherAbsence
-from app.schemas.teacher import TeacherAbsenceCreateRequest, TeacherCreateRequest
 from app.services.auth.permissions import Actor
 from app.services.groups import clear_homeroom_teacher
-from app.services.teachers import mappers, repository
+from app.services.teachers import repository
 
 
 class DuplicateTeacherError(Exception):
@@ -23,12 +22,12 @@ class TeacherAbsenceNotFoundError(Exception):
     pass
 
 
-def list_teachers(session) -> list:
+def list_teachers(session) -> list[tuple[Teacher, int, list[TeacherAbsence]]]:
     lesson_counts = repository.get_teacher_lesson_counts(session)
     teachers = repository.get_all_teachers(session)
     absences_by_teacher = repository.get_absences_by_teacher(session)
     return [
-        mappers.teacher_to_response(
+        (
             teacher,
             int(lesson_counts.get(teacher.id, 0)),
             absences_by_teacher.get(teacher.id, []),
@@ -37,31 +36,32 @@ def list_teachers(session) -> list:
     ]
 
 
-def list_available_teachers(session, *, lesson_date: date, time_slot: int) -> list:
-    teachers = list_teachers(session)
+def list_available_teachers(
+    session, *, lesson_date: date, time_slot: int
+) -> list[tuple[Teacher, int, list[TeacherAbsence]]]:
     return [
-        teacher
-        for teacher in teachers
+        (teacher, lesson_count, absences)
+        for teacher, lesson_count, absences in list_teachers(session)
         if not any(
-            absence.date == lesson_date and absence.time_slot_start <= time_slot <= absence.time_slot_end
-            for absence in teacher.absences
+            absence.absence_date == lesson_date and absence.time_slot_start <= time_slot <= absence.time_slot_end
+            for absence in absences
         )
     ]
 
 
-def create_teacher(session, payload: TeacherCreateRequest, actor: Actor):
-    name = payload.name.strip()
-    source_teacher_id = (payload.teacher_id or name).strip()
+def create_teacher(session, *, name: str, teacher_id: str | None, post: str, actor: Actor) -> Teacher:
+    name = name.strip()
+    source_teacher_id = (teacher_id or name).strip()
     if not name or not source_teacher_id:
         raise DuplicateTeacherError(source_teacher_id)
     if repository.find_teacher_by_source_id(session, source_teacher_id) is not None:
         raise DuplicateTeacherError(source_teacher_id)
 
-    teacher = Teacher(source_teacher_id=source_teacher_id, source_name=name, post=payload.post.strip())
+    teacher = Teacher(source_teacher_id=source_teacher_id, source_name=name, post=post.strip())
     session.add(teacher)
     session.flush()
     _audit(session, action="create", teacher=teacher, actor=actor, payload={"teacher_id": source_teacher_id, "name": name})
-    return mappers.teacher_to_response(teacher, 0, [])
+    return teacher
 
 
 def delete_teacher(session, teacher_id: int, actor: Actor) -> None:
@@ -93,18 +93,28 @@ def delete_teacher(session, teacher_id: int, actor: Actor) -> None:
     session.delete(teacher)
 
 
-def create_teacher_absence(session, teacher_id: int, payload: TeacherAbsenceCreateRequest, actor: Actor):
+def create_teacher_absence(
+    session,
+    teacher_id: int,
+    *,
+    absence_date: date,
+    all_day: bool,
+    time_slot_start: int | None,
+    time_slot_end: int | None,
+    reason: str,
+    actor: Actor,
+) -> TeacherAbsence:
     teacher = repository.get_teacher_by_id(session, teacher_id)
     if teacher is None:
         raise TeacherNotFoundError()
 
     absence = TeacherAbsence(
         teacher_id=teacher.id,
-        absence_date=payload.date,
-        all_day=payload.all_day,
-        time_slot_start=payload.time_slot_start or 1,
-        time_slot_end=payload.time_slot_end or 7,
-        reason=payload.reason.strip(),
+        absence_date=absence_date,
+        all_day=all_day,
+        time_slot_start=time_slot_start or 1,
+        time_slot_end=time_slot_end or 7,
+        reason=reason.strip(),
     )
     session.add(absence)
     session.flush()
@@ -113,9 +123,9 @@ def create_teacher_absence(session, teacher_id: int, payload: TeacherAbsenceCrea
         action="mark_absent",
         teacher=teacher,
         actor=actor,
-        payload=mappers.absence_to_response(absence).model_dump(mode="json"),
+        payload=_absence_audit_payload(absence),
     )
-    return mappers.absence_to_response(absence)
+    return absence
 
 
 def delete_teacher_absence(session, teacher_id: int, absence_id: int, actor: Actor) -> None:
@@ -131,7 +141,7 @@ def delete_teacher_absence(session, teacher_id: int, absence_id: int, actor: Act
         action="clear_absence",
         teacher=teacher,
         actor=actor,
-        payload=mappers.absence_to_response(absence).model_dump(mode="json"),
+        payload=_absence_audit_payload(absence),
     )
     session.delete(absence)
 
@@ -152,6 +162,17 @@ def absence_matches_slot(absence: TeacherAbsence, *, lesson_date: date, time_slo
         and absence.time_slot_start <= time_slot
         and absence.time_slot_end >= time_slot
     )
+
+
+def _absence_audit_payload(absence: TeacherAbsence) -> dict:
+    return {
+        "id": absence.id,
+        "date": absence.absence_date.isoformat(),
+        "all_day": absence.all_day,
+        "time_slot_start": absence.time_slot_start,
+        "time_slot_end": absence.time_slot_end,
+        "reason": absence.reason,
+    }
 
 
 def _audit(session, *, action: str, teacher: Teacher, actor: Actor, payload: dict) -> None:
