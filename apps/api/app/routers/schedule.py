@@ -18,7 +18,7 @@ from app.schemas.schedule_edit import (
     ScheduleSlotRoomResponse,
 )
 from app.services.auth.permissions import Actor, require_editor_actor
-from app.services.schedule_editor import ConflictError, LessonNotFoundError
+from app.services.schedule_editor import ConflictError, LessonNotFoundError, mappers
 from app.services.schedule_editor import create_lesson as create_lesson_service
 from app.services.schedule_editor import delete_lesson as delete_lesson_service
 from app.services.schedule_editor.service import (
@@ -52,7 +52,9 @@ def _public_entity_week(session: Session, entity_type: str, entity_id: int, week
         entity_type,
         entity_id,
         week_number,
-        lambda: get_public_week_for_entity(session, entity_type, entity_id, week_number).model_dump(mode="json"),
+        lambda: mappers.schedule_week_view_to_response(
+            get_public_week_for_entity(session, entity_type, entity_id, week_number)
+        ).model_dump(mode="json"),
     )
 
 
@@ -61,13 +63,13 @@ def get_public_latest_week(session: Annotated[Session, Depends(get_session)]) ->
     cache = get_cache()
     return cache.get_or_set(
         "latest", 0, 0,
-        lambda: get_latest_public_week(session).model_dump(mode="json"),
+        lambda: mappers.schedule_week_view_to_response(get_latest_public_week(session)).model_dump(mode="json"),
     )
 
 
 @router.get("/public/index", response_model=PublicScheduleIndexResponse)
 def get_public_index(session: Annotated[Session, Depends(get_session)]) -> dict:
-    return get_public_schedule_index(session).model_dump(mode="json")
+    return mappers.schedule_index_view_to_response(get_public_schedule_index(session)).model_dump(mode="json")
 
 
 @router.get("/public/by-group", response_model=PublicScheduleWeekResponse)
@@ -105,8 +107,8 @@ def get_lessons(
     session: Annotated[Session, Depends(get_session)],
 ) -> list[dict]:
     return [
-        lesson.model_dump(mode="json")
-        for lesson in list_lessons_by_slot(session, lesson_date=date, time_slot=time_slot)
+        mappers.slot_room_view_to_response(row).model_dump(mode="json")
+        for row in list_lessons_by_slot(session, lesson_date=date, time_slot=time_slot)
     ]
 
 
@@ -126,12 +128,32 @@ def create_lesson(
 ) -> dict:
     try:
         with session.begin():
-            result = create_lesson_service(session, payload, actor)
+            result = create_lesson_service(
+                session,
+                group_name=payload.group_name,
+                course=payload.course,
+                faculty=payload.faculty,
+                subject=payload.subject,
+                source_teacher_id=payload.teacher_id,
+                teacher_name=payload.teacher_name,
+                teacher_post=payload.teacher_post,
+                room_name=payload.room_name,
+                lesson_date=payload.date,
+                time_start=payload.time_start,
+                time_end=payload.time_end,
+                weekday=payload.weekday,
+                week_number=payload.week_number,
+                time_slot=payload.time_slot,
+                subgroup=payload.subgroup,
+                lesson_type=payload.lesson_type,
+                audit_payload=payload.model_dump(mode="json"),
+                actor=actor,
+            )
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
     _invalidate(result.cache_keys)
     return {
-        **result.lesson.model_dump(mode="json"),
+        **mappers.lesson_view_to_response(result.lesson).model_dump(mode="json"),
         "warnings": [warning.model_dump(mode="json") for warning in result.warnings],
     }
 
@@ -145,14 +167,36 @@ def update_lesson(
 ) -> dict:
     try:
         with session.begin():
-            result = update_lesson_service(session, lesson_id, payload, actor)
+            result = update_lesson_service(
+                session,
+                lesson_id,
+                group_name=payload.group_name,
+                course=payload.course,
+                faculty=payload.faculty,
+                subject=payload.subject,
+                source_teacher_id=payload.teacher_id,
+                teacher_name=payload.teacher_name,
+                teacher_post=payload.teacher_post,
+                room_name=payload.room_name,
+                lesson_date=payload.date,
+                time_start=payload.time_start,
+                time_end=payload.time_end,
+                weekday=payload.weekday,
+                week_number=payload.week_number,
+                time_slot=payload.time_slot,
+                subgroup=payload.subgroup,
+                lesson_type=payload.lesson_type,
+                changed_fields=payload.model_fields_set,
+                audit_payload=payload.model_dump(mode="json", exclude_unset=True),
+                actor=actor,
+            )
     except LessonNotFoundError as exc:
         raise HTTPException(status_code=404, detail="lesson not found") from exc
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
     _invalidate(result.cache_keys)
     return {
-        **result.lesson.model_dump(mode="json"),
+        **mappers.lesson_view_to_response(result.lesson).model_dump(mode="json"),
         "warnings": [warning.model_dump(mode="json") for warning in result.warnings],
     }
 

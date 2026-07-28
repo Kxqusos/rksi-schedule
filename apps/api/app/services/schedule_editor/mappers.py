@@ -1,15 +1,27 @@
 from __future__ import annotations
 
 from datetime import date as Date
+from typing import TYPE_CHECKING
 
 from app.models import Lesson, Room, TeacherAbsence
 from app.schemas.schedule_edit import (
     LessonResponse,
+    PublicEntityRef,
     PublicScheduleDayResponse,
+    PublicScheduleIndexResponse,
     PublicScheduleWeekResponse,
     ScheduleProblemResponse,
     ScheduleSlotRoomResponse,
 )
+
+if TYPE_CHECKING:
+    from app.services.schedule_editor.service import (
+        LessonView,
+        ScheduleDayView,
+        ScheduleIndexView,
+        ScheduleWeekView,
+        SlotRoomView,
+    )
 
 
 def lesson_to_response(
@@ -79,6 +91,54 @@ def public_schedule_day_response(
     lessons: list[LessonResponse],
 ) -> PublicScheduleDayResponse:
     return PublicScheduleDayResponse(date=date, weekday=weekday, lessons=lessons)
+
+
+def lesson_view_to_response(view: LessonView) -> LessonResponse:
+    return lesson_to_response(
+        view.lesson,
+        group_name=view.group_name,
+        subject_name=view.subject_name,
+        teacher_name=view.teacher_name,
+        teacher_absence=view.teacher_absence,
+        room_name=view.room_name,
+    )
+
+
+def slot_room_view_to_response(view: SlotRoomView) -> ScheduleSlotRoomResponse:
+    return schedule_slot_room_response(
+        room_name=view.room_name,
+        building=view.building,
+        room_is_excluded=view.room_is_excluded,
+        room_exclusion_reason=view.room_exclusion_reason,
+        lesson=lesson_view_to_response(view.lesson) if view.lesson else None,
+    )
+
+
+def schedule_day_view_to_response(view: ScheduleDayView) -> PublicScheduleDayResponse:
+    return public_schedule_day_response(
+        date=view.date,
+        weekday=view.weekday,
+        lessons=[lesson_view_to_response(lesson) for lesson in view.lessons],
+    )
+
+
+def schedule_week_view_to_response(view: ScheduleWeekView) -> PublicScheduleWeekResponse:
+    return public_schedule_week_response(
+        week_start=view.week_start,
+        week_end=view.week_end,
+        week_number=view.week_number,
+        days=[schedule_day_view_to_response(day) for day in view.days],
+    )
+
+
+def schedule_index_view_to_response(view: ScheduleIndexView) -> PublicScheduleIndexResponse:
+    return PublicScheduleIndexResponse(
+        groups=[PublicEntityRef(id=ref.id, name=ref.name) for ref in view.groups],
+        teachers=[PublicEntityRef(id=ref.id, name=ref.name) for ref in view.teachers],
+        rooms=[PublicEntityRef(id=ref.id, name=ref.name) for ref in view.rooms],
+        weeks=view.weeks,
+        latest_week=view.latest_week,
+    )
 
 
 def problem_to_response(

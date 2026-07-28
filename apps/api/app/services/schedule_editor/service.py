@@ -1,27 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date as Date
 from datetime import timedelta
 from uuid import uuid4
 
-from app.models import AuditLog, Group, Lesson, Room, Subject, Teacher
-from app.schemas.schedule_edit import (
-    LessonCreateRequest,
-    LessonResponse,
-    LessonUpdateRequest,
-    PublicEntityRef,
-    PublicScheduleDayResponse,
-    PublicScheduleIndexResponse,
-    PublicScheduleWeekResponse,
-    ScheduleProblemResponse,
-    ScheduleSlotRoomResponse,
-)
+from app.models import AuditLog, Group, Lesson, Room, Subject, Teacher, TeacherAbsence
+# Only the problems path still depends on a response schema here; the lesson/public
+# read + mutation paths return the domain views below and are mapped in the router.
+# Task 7 finishes moving ScheduleProblemResponse out of the service (problems.py).
+from app.schemas.schedule_edit import ScheduleProblemResponse
 
 PUBLIC_ENTITY_TYPES = ("group", "teacher", "room")
 # One cache key per (entity_type, entity_id, week); see core/cache.ScheduleCache.
 CacheKey = tuple[str, int, int]
 from app.services.auth.permissions import Actor
-from app.services.schedule_editor import mappers, repository
+from app.services.schedule_editor import repository
 from app.services.schedule_editor.problems import (
     _blocking_detail,
     _group_day_errors,
@@ -34,9 +28,15 @@ from app.services.teachers import teacher_absence_for_slot
 
 __all__ = [
     "ConflictError",
+    "EntityRefView",
     "LessonMutationResult",
     "LessonNotFoundError",
+    "LessonView",
     "PUBLIC_ENTITY_TYPES",
+    "ScheduleDayView",
+    "ScheduleIndexView",
+    "ScheduleWeekView",
+    "SlotRoomView",
     "create_lesson",
     "delete_lesson",
     "get_latest_public_week",
@@ -50,8 +50,57 @@ __all__ = [
 
 
 @dataclass(frozen=True, slots=True)
+class LessonView:
+    lesson: Lesson
+    group_name: str
+    subject_name: str
+    teacher_name: str | None
+    teacher_absence: TeacherAbsence | None
+    room_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SlotRoomView:
+    room_name: str
+    building: str
+    room_is_excluded: bool
+    room_exclusion_reason: str
+    lesson: LessonView | None
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduleDayView:
+    date: Date
+    weekday: int
+    lessons: list[LessonView]
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduleWeekView:
+    week_start: Date | None
+    week_end: Date | None
+    week_number: int | None
+    days: list[ScheduleDayView]
+
+
+@dataclass(frozen=True, slots=True)
+class EntityRefView:
+    id: int
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduleIndexView:
+    groups: list[EntityRefView]
+    teachers: list[EntityRefView]
+    rooms: list[EntityRefView]
+    weeks: list[int]
+    latest_week: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class LessonMutationResult:
-    lesson: LessonResponse
+    lesson: LessonView
     warnings: list[ScheduleProblemResponse]
     cache_keys: list[CacheKey]
 
@@ -66,50 +115,94 @@ class LessonNotFoundError(Exception):
     pass
 
 
-def create_lesson(session, payload: LessonCreateRequest, actor: Actor) -> LessonMutationResult:
-    group = _get_or_create_group(session, payload.group_name, payload.course, payload.faculty)
-    subject = _get_or_create_subject(session, payload.subject)
-    teacher = _get_or_create_teacher(session, payload.teacher_id, payload.teacher_name, payload.teacher_post)
-    room = _get_or_create_room(session, payload.room_name)
+def create_lesson(
+    session,
+    *,
+    group_name: str,
+    course: int,
+    faculty: str,
+    subject: str,
+    source_teacher_id: str | None,
+    teacher_name: str | None,
+    teacher_post: str,
+    room_name: str | None,
+    lesson_date: Date,
+    time_start,
+    time_end,
+    weekday: int,
+    week_number: int,
+    time_slot: int,
+    subgroup: int,
+    lesson_type: str,
+    audit_payload: dict,
+    actor: Actor,
+) -> LessonMutationResult:
+    group = _get_or_create_group(session, group_name, course, faculty)
+    subject_obj = _get_or_create_subject(session, subject)
+    teacher = _get_or_create_teacher(session, source_teacher_id, teacher_name, teacher_post)
+    room = _get_or_create_room(session, room_name)
 
     _ensure_no_conflicts(
         session,
         group_id=group.id,
         teacher_id=teacher.id if teacher else None,
         room_id=room.id if room else None,
-        lesson_date=payload.date,
-        time_slot=payload.time_slot,
-        subgroup=payload.subgroup,
+        lesson_date=lesson_date,
+        time_slot=time_slot,
+        subgroup=subgroup,
     )
 
     lesson = Lesson(
         source_lesson_id=f"manual:{uuid4()}",
         schedule_import_id=_latest_import_id(session),
         group_id=group.id,
-        subject_id=subject.id,
+        subject_id=subject_obj.id,
         teacher_id=teacher.id if teacher else None,
         room_id=room.id if room else None,
-        lesson_date=payload.date,
-        start_time=payload.time_start,
-        end_time=payload.time_end,
-        weekday=payload.weekday,
-        week_number=payload.week_number,
-        time_slot=payload.time_slot,
-        subgroup=payload.subgroup,
-        lesson_type=payload.lesson_type,
+        lesson_date=lesson_date,
+        start_time=time_start,
+        end_time=time_end,
+        weekday=weekday,
+        week_number=week_number,
+        time_slot=time_slot,
+        subgroup=subgroup,
+        lesson_type=lesson_type,
     )
     session.add(lesson)
     session.flush()
-    _ensure_group_rules(session, group_ids={group.id}, dates={payload.date}, week_numbers={payload.week_number})
-    _audit(session, action="create", lesson=lesson, actor=actor, payload=payload.model_dump(mode="json"))
-    lesson_response = _lesson_response(session, lesson)
+    _ensure_group_rules(session, group_ids={group.id}, dates={lesson_date}, week_numbers={week_number})
+    _audit(session, action="create", lesson=lesson, actor=actor, payload=audit_payload)
+    lesson_view = _lesson_view(session, lesson)
     cache_keys = _lesson_cache_keys(
         group_id=lesson.group_id, teacher_id=lesson.teacher_id, room_id=lesson.room_id, week_number=lesson.week_number
     )
-    return LessonMutationResult(lesson=lesson_response, warnings=_warnings_for_lesson(session, lesson), cache_keys=cache_keys)
+    return LessonMutationResult(lesson=lesson_view, warnings=_warnings_for_lesson(session, lesson), cache_keys=cache_keys)
 
 
-def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: Actor) -> LessonMutationResult:
+def update_lesson(
+    session,
+    lesson_id: int,
+    *,
+    group_name: str | None,
+    course: int | None,
+    faculty: str | None,
+    subject: str | None,
+    source_teacher_id: str | None,
+    teacher_name: str | None,
+    teacher_post: str | None,
+    room_name: str | None,
+    lesson_date: Date | None,
+    time_start,
+    time_end,
+    weekday: int | None,
+    week_number: int | None,
+    time_slot: int | None,
+    subgroup: int | None,
+    lesson_type: str | None,
+    changed_fields: set[str],
+    audit_payload: dict,
+    actor: Actor,
+) -> LessonMutationResult:
     lesson = repository.get_lesson_by_id(session, lesson_id)
     if lesson is None:
         raise LessonNotFoundError()
@@ -119,35 +212,34 @@ def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: 
     original_week_number = lesson.week_number
     original_room_id = lesson.room_id
     original_teacher_id = lesson.teacher_id
-    changed_fields = payload.model_fields_set
 
     group_id = lesson.group_id
     subject_id = lesson.subject_id
-    teacher_id = lesson.teacher_id
+    teacher_fk = lesson.teacher_id
     room_id = lesson.room_id
 
-    if payload.group_name is not None:
-        group = _get_or_create_group(session, payload.group_name, payload.course or 0, payload.faculty or "")
+    if group_name is not None:
+        group = _get_or_create_group(session, group_name, course or 0, faculty or "")
         group_id = group.id
-    if payload.subject is not None:
-        subject = _get_or_create_subject(session, payload.subject)
-        subject_id = subject.id
-    if payload.teacher_id is not None or payload.teacher_name is not None:
-        teacher = _get_or_create_teacher(session, payload.teacher_id, payload.teacher_name, payload.teacher_post)
-        teacher_id = teacher.id if teacher else None
+    if subject is not None:
+        subject_obj = _get_or_create_subject(session, subject)
+        subject_id = subject_obj.id
+    if source_teacher_id is not None or teacher_name is not None:
+        teacher = _get_or_create_teacher(session, source_teacher_id, teacher_name, teacher_post)
+        teacher_fk = teacher.id if teacher else None
     if "room_name" in changed_fields:
-        room = _get_or_create_room(session, payload.room_name)
+        room = _get_or_create_room(session, room_name)
         room_id = room.id if room else None
 
-    lesson_date = payload.date or lesson.lesson_date
-    time_slot = payload.time_slot or lesson.time_slot
-    subgroup = payload.subgroup if payload.subgroup is not None else lesson.subgroup
+    new_lesson_date = lesson_date or lesson.lesson_date
+    new_time_slot = time_slot or lesson.time_slot
+    new_subgroup = subgroup if subgroup is not None else lesson.subgroup
     swapped_lesson = (
         _lesson_in_room_slot(
             session,
             room_id=room_id,
-            lesson_date=lesson_date,
-            time_slot=time_slot,
+            lesson_date=new_lesson_date,
+            time_slot=new_time_slot,
             exclude_lesson_id=lesson.id,
         )
         if "room_name" in changed_fields and room_id != original_room_id
@@ -157,29 +249,29 @@ def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: 
     _ensure_no_conflicts(
         session,
         group_id=group_id,
-        teacher_id=teacher_id,
+        teacher_id=teacher_fk,
         room_id=room_id,
-        lesson_date=lesson_date,
-        time_slot=time_slot,
-        subgroup=subgroup,
+        lesson_date=new_lesson_date,
+        time_slot=new_time_slot,
+        subgroup=new_subgroup,
         exclude_lesson_id=lesson.id,
     )
 
     lesson.group_id = group_id
     lesson.subject_id = subject_id
-    lesson.teacher_id = teacher_id
+    lesson.teacher_id = teacher_fk
     lesson.room_id = room_id
-    lesson.lesson_date = lesson_date
-    lesson.start_time = payload.time_start or lesson.start_time
-    lesson.end_time = payload.time_end or lesson.end_time
-    lesson.weekday = payload.weekday or lesson.weekday
-    lesson.week_number = payload.week_number or lesson.week_number
-    lesson.time_slot = time_slot
-    lesson.subgroup = subgroup
+    lesson.lesson_date = new_lesson_date
+    lesson.start_time = time_start or lesson.start_time
+    lesson.end_time = time_end or lesson.end_time
+    lesson.weekday = weekday or lesson.weekday
+    lesson.week_number = week_number or lesson.week_number
+    lesson.time_slot = new_time_slot
+    lesson.subgroup = new_subgroup
     if swapped_lesson is not None:
         swapped_lesson.room_id = original_room_id
-    if payload.lesson_type is not None:
-        lesson.lesson_type = payload.lesson_type
+    if lesson_type is not None:
+        lesson.lesson_type = lesson_type
     session.flush()
     if changed_fields - {"room_name"}:
         _ensure_group_rules(
@@ -188,8 +280,8 @@ def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: 
             dates={original_date, lesson.lesson_date},
             week_numbers={original_week_number, lesson.week_number},
         )
-    _audit(session, action="update", lesson=lesson, actor=actor, payload=payload.model_dump(mode="json", exclude_unset=True))
-    lesson_response = _lesson_response(session, lesson)
+    _audit(session, action="update", lesson=lesson, actor=actor, payload=audit_payload)
+    lesson_view = _lesson_view(session, lesson)
     cache_keys = _merge_cache_keys(
         _lesson_cache_keys(
             group_id=original_group_id,
@@ -201,7 +293,7 @@ def update_lesson(session, lesson_id: int, payload: LessonUpdateRequest, actor: 
             group_id=lesson.group_id, teacher_id=lesson.teacher_id, room_id=lesson.room_id, week_number=lesson.week_number
         ),
     )
-    return LessonMutationResult(lesson=lesson_response, warnings=_warnings_for_lesson(session, lesson), cache_keys=cache_keys)
+    return LessonMutationResult(lesson=lesson_view, warnings=_warnings_for_lesson(session, lesson), cache_keys=cache_keys)
 
 
 def delete_lesson(session, lesson_id: int, actor: Actor) -> list[CacheKey]:
@@ -221,21 +313,21 @@ def delete_lesson(session, lesson_id: int, actor: Actor) -> list[CacheKey]:
     return cache_keys
 
 
-def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleSlotRoomResponse]:
+def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[SlotRoomView]:
     rooms = repository.get_rooms_ordered(session)
     lessons = repository.get_lessons_for_slot(session, lesson_date, time_slot)
 
-    lessons_by_room: dict[str, list[LessonResponse]] = {}
-    unplaced_lessons: list[LessonResponse] = []
+    lessons_by_room: dict[str, list[LessonView]] = {}
+    unplaced_lessons: list[LessonView] = []
     for lesson in lessons:
-        lesson_response = _lesson_response(session, lesson)
-        if lesson_response.room_name:
-            lessons_by_room.setdefault(lesson_response.room_name, []).append(lesson_response)
+        lesson_view = _lesson_view(session, lesson)
+        if lesson_view.room_name:
+            lessons_by_room.setdefault(lesson_view.room_name, []).append(lesson_view)
         else:
-            unplaced_lessons.append(lesson_response)
+            unplaced_lessons.append(lesson_view)
 
-    rows: list[ScheduleSlotRoomResponse] = [
-        mappers.schedule_slot_room_response(
+    rows: list[SlotRoomView] = [
+        SlotRoomView(
             room_name=room.source_name,
             building=_room_building(room.source_name),
             room_is_excluded=room.is_excluded,
@@ -254,7 +346,7 @@ def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleS
     for lesson in [*unplaced_lessons, *hidden_room_lessons]:
         room = repository.get_room_by_name(session, lesson.room_name) if lesson.room_name else None
         rows.append(
-            mappers.schedule_slot_room_response(
+            SlotRoomView(
                 room_name=lesson.room_name or "Без кабинета",
                 building=_room_building(lesson.room_name or ""),
                 room_is_excluded=room.is_excluded if room else False,
@@ -265,10 +357,10 @@ def list_lessons_by_slot(session, lesson_date, time_slot: int) -> list[ScheduleS
     return rows
 
 
-def get_latest_public_week(session) -> PublicScheduleWeekResponse:
+def get_latest_public_week(session) -> ScheduleWeekView:
     latest_date = repository.get_latest_lesson_date(session)
     if latest_date is None:
-        return PublicScheduleWeekResponse()
+        return ScheduleWeekView(week_start=None, week_end=None, week_number=None, days=[])
 
     week_start = latest_date - timedelta(days=latest_date.weekday())
     week_end = week_start + timedelta(days=6)
@@ -277,14 +369,14 @@ def get_latest_public_week(session) -> PublicScheduleWeekResponse:
 
     lessons_by_date = {week_start + timedelta(days=offset): [] for offset in range(7)}
     for lesson in lessons:
-        lessons_by_date.setdefault(lesson.lesson_date, []).append(_lesson_response(session, lesson))
+        lessons_by_date.setdefault(lesson.lesson_date, []).append(_lesson_view(session, lesson))
 
-    return mappers.public_schedule_week_response(
+    return ScheduleWeekView(
         week_start=week_start,
         week_end=week_end,
         week_number=latest_week_number,
         days=[
-            mappers.public_schedule_day_response(
+            ScheduleDayView(
                 date=day_date,
                 weekday=index + 1,
                 lessons=lessons_by_date.get(day_date, []),
@@ -301,23 +393,23 @@ def get_latest_week_number(session) -> int | None:
     return repository.get_latest_week_number_for_date(session, latest_date)
 
 
-def get_public_schedule_index(session) -> PublicScheduleIndexResponse:
+def get_public_schedule_index(session) -> ScheduleIndexView:
     groups = repository.get_all_groups_ordered(session)
     teachers = repository.get_teachers_ordered(session)
     rooms = repository.get_rooms_ordered_all(session)
     weeks = sorted(
         {int(week) for week in repository.get_distinct_week_numbers(session) if week is not None}
     )
-    return PublicScheduleIndexResponse(
-        groups=[PublicEntityRef(id=group.id, name=group.source_name) for group in groups if group.source_name],
-        teachers=[PublicEntityRef(id=teacher.id, name=teacher.source_name) for teacher in teachers if teacher.source_name],
-        rooms=[PublicEntityRef(id=room.id, name=room.source_name) for room in rooms if room.source_name],
+    return ScheduleIndexView(
+        groups=[EntityRefView(id=group.id, name=group.source_name) for group in groups if group.source_name],
+        teachers=[EntityRefView(id=teacher.id, name=teacher.source_name) for teacher in teachers if teacher.source_name],
+        rooms=[EntityRefView(id=room.id, name=room.source_name) for room in rooms if room.source_name],
         weeks=weeks,
         latest_week=get_latest_week_number(session),
     )
 
 
-def get_public_week_for_entity(session, entity_type: str, entity_id: int, week_number: int) -> PublicScheduleWeekResponse:
+def get_public_week_for_entity(session, entity_type: str, entity_id: int, week_number: int) -> ScheduleWeekView:
     if entity_type == "group":
         lessons = repository.get_lessons_for_group_and_week(session, entity_id, week_number)
     elif entity_type == "teacher":
@@ -329,21 +421,21 @@ def get_public_week_for_entity(session, entity_type: str, entity_id: int, week_n
     return _build_public_week(session, lessons, week_number=week_number)
 
 
-def _build_public_week(session, lessons: list[Lesson], *, week_number: int) -> PublicScheduleWeekResponse:
+def _build_public_week(session, lessons: list[Lesson], *, week_number: int) -> ScheduleWeekView:
     if not lessons:
-        return PublicScheduleWeekResponse(week_number=week_number)
+        return ScheduleWeekView(week_start=None, week_end=None, week_number=week_number, days=[])
     reference_date = min(lesson.lesson_date for lesson in lessons)
     week_start = reference_date - timedelta(days=reference_date.weekday())
     week_end = week_start + timedelta(days=6)
     lessons_by_date = {week_start + timedelta(days=offset): [] for offset in range(7)}
     for lesson in lessons:
-        lessons_by_date.setdefault(lesson.lesson_date, []).append(_lesson_response(session, lesson))
-    return mappers.public_schedule_week_response(
+        lessons_by_date.setdefault(lesson.lesson_date, []).append(_lesson_view(session, lesson))
+    return ScheduleWeekView(
         week_start=week_start,
         week_end=week_end,
         week_number=week_number,
         days=[
-            mappers.public_schedule_day_response(
+            ScheduleDayView(
                 date=day_date,
                 weekday=index + 1,
                 lessons=lessons_by_date.get(day_date, []),
@@ -500,7 +592,7 @@ def _get_or_create_room(session, room_name: str | None) -> Room | None:
     return room
 
 
-def _lesson_response(session, lesson: Lesson) -> LessonResponse:
+def _lesson_view(session, lesson: Lesson) -> LessonView:
     group = repository.get_group_by_id(session, lesson.group_id)
     subject = repository.get_subject_by_id(session, lesson.subject_id)
     teacher = repository.get_teacher_by_id(session, lesson.teacher_id) if lesson.teacher_id else None
@@ -515,8 +607,8 @@ def _lesson_response(session, lesson: Lesson) -> LessonResponse:
         if lesson.teacher_id
         else None
     )
-    return mappers.lesson_to_response(
-        lesson,
+    return LessonView(
+        lesson=lesson,
         group_name=group.source_name if group else "",
         subject_name=subject.source_name if subject else "",
         teacher_name=teacher.source_name if teacher else None,
