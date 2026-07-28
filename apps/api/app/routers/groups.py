@@ -14,6 +14,7 @@ from app.services.groups import (
     HomeroomTeacherNotFoundError,
     delete_group,
     list_groups,
+    mappers,
     set_homeroom_teacher,
     update_group,
 )
@@ -26,7 +27,10 @@ def get_groups(
     actor: Annotated[Actor, Depends(require_editor_actor)],
     session: Annotated[Session, Depends(get_session)],
 ) -> list[dict]:
-    return [group.model_dump(mode="json") for group in list_groups(session)]
+    return [
+        mappers.group_to_response(group, lesson_count, teacher).model_dump(mode="json")
+        for group, lesson_count, teacher in list_groups(session)
+    ]
 
 
 @router.patch("/{group_id}", response_model=GroupResponse)
@@ -38,12 +42,12 @@ def patch_group(
 ) -> dict:
     try:
         with session.begin():
-            result = update_group(session, group_id, payload, actor)
+            group, lesson_count, teacher = update_group(session, group_id, payload.name, actor)
     except GroupNotFoundError as exc:
         raise HTTPException(status_code=404, detail="group not found") from exc
     except DuplicateGroupError as exc:
         raise HTTPException(status_code=409, detail=f"group '{exc.name}' already exists") from exc
-    return result.model_dump(mode="json")
+    return mappers.group_to_response(group, lesson_count, teacher).model_dump(mode="json")
 
 
 @router.patch("/{group_id}/homeroom-teacher", response_model=GroupResponse)
@@ -55,12 +59,14 @@ def patch_group_homeroom_teacher(
 ) -> dict:
     try:
         with session.begin():
-            result = set_homeroom_teacher(session, group_id, payload, actor)
+            group, lesson_count, teacher = set_homeroom_teacher(
+                session, group_id, payload.teacher_id, actor
+            )
     except GroupNotFoundError as exc:
         raise HTTPException(status_code=404, detail="group not found") from exc
     except HomeroomTeacherNotFoundError as exc:
         raise HTTPException(status_code=404, detail="teacher not found") from exc
-    return result.model_dump(mode="json")
+    return mappers.group_to_response(group, lesson_count, teacher).model_dump(mode="json")
 
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)

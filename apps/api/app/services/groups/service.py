@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from app.models import AuditLog, Group, Teacher
-from app.schemas.group import GroupHomeroomTeacherRequest, GroupUpdateRequest
 from app.services.auth.permissions import Actor
-from app.services.groups import mappers, repository
+from app.services.groups import repository
 
 
 class DuplicateGroupError(Exception):
@@ -20,44 +19,44 @@ class HomeroomTeacherNotFoundError(Exception):
     pass
 
 
-def list_groups(session) -> list:
+def list_groups(session) -> list[tuple[Group, int, Teacher | None]]:
     lesson_counts = repository.get_group_lesson_counts(session)
     teachers = repository.get_teachers_by_id(session)
     groups = repository.get_all_groups(session)
     return [
-        mappers.group_to_response(group, int(lesson_counts.get(group.id, 0)), teachers.get(group.homeroom_teacher_id))
+        (group, int(lesson_counts.get(group.id, 0)), teachers.get(group.homeroom_teacher_id))
         for group in groups
     ]
 
 
-def update_group(session, group_id: int, payload: GroupUpdateRequest, actor: Actor):
+def update_group(session, group_id: int, name: str, actor: Actor) -> tuple[Group, int, Teacher | None]:
     group = repository.get_group_by_id(session, group_id)
     if group is None:
         raise GroupNotFoundError()
 
-    name = payload.name.strip()
-    if not name:
-        raise DuplicateGroupError(payload.name)
-    if repository.find_group_by_name(session, name, exclude_id=group.id) is not None:
+    stripped_name = name.strip()
+    if not stripped_name:
         raise DuplicateGroupError(name)
+    if repository.find_group_by_name(session, stripped_name, exclude_id=group.id) is not None:
+        raise DuplicateGroupError(stripped_name)
 
     old_name = group.source_name
-    group.source_name = name
+    group.source_name = stripped_name
     session.flush()
     lesson_count = repository.get_group_lesson_count(session, group.id)
     teacher = repository.get_teacher_by_id(session, group.homeroom_teacher_id) if group.homeroom_teacher_id else None
-    _audit(session, action="rename", group=group, actor=actor, payload={"old_name": old_name, "name": name})
-    return mappers.group_to_response(group, lesson_count, teacher)
+    _audit(session, action="rename", group=group, actor=actor, payload={"old_name": old_name, "name": stripped_name})
+    return group, lesson_count, teacher
 
 
-def set_homeroom_teacher(session, group_id: int, payload: GroupHomeroomTeacherRequest, actor: Actor):
+def set_homeroom_teacher(session, group_id: int, teacher_id: int | None, actor: Actor) -> tuple[Group, int, Teacher | None]:
     group = repository.get_group_by_id(session, group_id)
     if group is None:
         raise GroupNotFoundError()
 
     teacher = None
-    if payload.teacher_id is not None:
-        teacher = repository.get_teacher_by_id(session, payload.teacher_id)
+    if teacher_id is not None:
+        teacher = repository.get_teacher_by_id(session, teacher_id)
         if teacher is None:
             raise HomeroomTeacherNotFoundError()
 
@@ -72,7 +71,7 @@ def set_homeroom_teacher(session, group_id: int, payload: GroupHomeroomTeacherRe
         actor=actor,
         payload={"teacher_id": teacher.id if teacher else None, "teacher_name": teacher.source_name if teacher else None},
     )
-    return mappers.group_to_response(group, lesson_count, teacher)
+    return group, lesson_count, teacher
 
 
 def delete_group(session, group_id: int, actor: Actor) -> None:
