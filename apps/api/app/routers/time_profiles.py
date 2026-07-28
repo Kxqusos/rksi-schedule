@@ -26,6 +26,7 @@ from app.services.time_profiles import (
     delete_week_profile,
     list_day_profiles,
     list_week_profiles,
+    mappers,
     update_day_profile,
     update_week_profile,
 )
@@ -38,7 +39,10 @@ def get_day_profiles(
     actor: Annotated[Actor, Depends(require_editor_actor)],
     session: Annotated[Session, Depends(get_session)],
 ) -> list[dict]:
-    return [profile.model_dump(mode="json") for profile in list_day_profiles(session)]
+    return [
+        mappers.day_profile_to_response(profile, slots).model_dump(mode="json")
+        for profile, slots in list_day_profiles(session)
+    ]
 
 
 @router.post("/day", response_model=DayTimeProfileResponse, status_code=status.HTTP_201_CREATED)
@@ -49,10 +53,10 @@ def post_day_profile(
 ) -> dict:
     try:
         with session.begin():
-            result = create_day_profile(session, payload, actor)
+            profile, slots = create_day_profile(session, payload.name, payload.slots, actor)
     except DuplicateTimeProfileError as exc:
         raise HTTPException(status_code=409, detail="day profile already exists") from exc
-    return result.model_dump(mode="json")
+    return mappers.day_profile_to_response(profile, slots).model_dump(mode="json")
 
 
 @router.patch("/day/{profile_id}", response_model=DayTimeProfileResponse)
@@ -64,12 +68,12 @@ def patch_day_profile(
 ) -> dict:
     try:
         with session.begin():
-            result = update_day_profile(session, profile_id, payload, actor)
+            profile, slots = update_day_profile(session, profile_id, payload.name, payload.slots, actor)
     except TimeProfileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="day profile not found") from exc
     except DuplicateTimeProfileError as exc:
         raise HTTPException(status_code=409, detail="day profile already exists") from exc
-    return result.model_dump(mode="json")
+    return mappers.day_profile_to_response(profile, slots).model_dump(mode="json")
 
 
 @router.delete("/day/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -93,7 +97,10 @@ def get_week_profiles(
     actor: Annotated[Actor, Depends(require_editor_actor)],
     session: Annotated[Session, Depends(get_session)],
 ) -> list[dict]:
-    return [profile.model_dump(mode="json") for profile in list_week_profiles(session)]
+    return [
+        mappers.week_profile_to_response(profile, days_with_names).model_dump(mode="json")
+        for profile, days_with_names in list_week_profiles(session)
+    ]
 
 
 @router.post("/week", response_model=WeekTimeProfileResponse, status_code=status.HTTP_201_CREATED)
@@ -104,12 +111,12 @@ def post_week_profile(
 ) -> dict:
     try:
         with session.begin():
-            result = create_week_profile(session, payload, actor)
+            profile, days_with_names = create_week_profile(session, payload.name, payload.days, actor)
     except DuplicateTimeProfileError as exc:
         raise HTTPException(status_code=409, detail="week profile already exists") from exc
     except DayProfileReferenceError as exc:
         raise HTTPException(status_code=404, detail="day profile not found") from exc
-    return result.model_dump(mode="json")
+    return mappers.week_profile_to_response(profile, days_with_names).model_dump(mode="json")
 
 
 @router.patch("/week/{profile_id}", response_model=WeekTimeProfileResponse)
@@ -121,14 +128,14 @@ def patch_week_profile(
 ) -> dict:
     try:
         with session.begin():
-            result = update_week_profile(session, profile_id, payload, actor)
+            profile, days_with_names = update_week_profile(session, profile_id, payload.name, payload.days, actor)
     except TimeProfileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="week profile not found") from exc
     except DuplicateTimeProfileError as exc:
         raise HTTPException(status_code=409, detail="week profile already exists") from exc
     except DayProfileReferenceError as exc:
         raise HTTPException(status_code=404, detail="day profile not found") from exc
-    return result.model_dump(mode="json")
+    return mappers.week_profile_to_response(profile, days_with_names).model_dump(mode="json")
 
 
 @router.delete("/week/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
