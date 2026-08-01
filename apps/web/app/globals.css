@@ -223,6 +223,7 @@ button {
   font-size: 11px;
   line-height: 1;
   color: var(--v-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .viewer-tab--today {
@@ -365,6 +366,15 @@ button {
 
   .viewer-tab strong {
     font-size: 13px;
+  }
+
+  .viewer-tab {
+    padding: 6px 1px;
+  }
+
+  .viewer-tab__date {
+    font-size: 10px;
+    letter-spacing: -0.2px;
   }
 }
 
