@@ -21,7 +21,11 @@ from app.services.schedule_editor.problems import (
     _warnings_for_lesson,
     list_schedule_problems,
 )
-from app.services.teachers import teacher_absence_for_slot
+from app.services.teachers import (
+    absence_matches_slot,
+    teacher_absence_for_slot,
+    teacher_absences_by_teacher,
+)
 
 __all__ = [
     "ConflictError",
@@ -364,9 +368,10 @@ def get_latest_public_week(session) -> ScheduleWeekView:
     latest_week_number = repository.get_latest_week_number_for_date(session, latest_date)
     lessons = repository.get_lessons_for_week(session, week_start, week_end)
 
+    views = _lesson_views(session, lessons)
     lessons_by_date = {week_start + timedelta(days=offset): [] for offset in range(7)}
     for lesson in lessons:
-        lessons_by_date.setdefault(lesson.lesson_date, []).append(_lesson_view(session, lesson))
+        lessons_by_date.setdefault(lesson.lesson_date, []).append(views[lesson.id])
 
     return ScheduleWeekView(
         week_start=week_start,
@@ -424,9 +429,10 @@ def _build_public_week(session, lessons: list[Lesson], *, week_number: int) -> S
     reference_date = min(lesson.lesson_date for lesson in lessons)
     week_start = reference_date - timedelta(days=reference_date.weekday())
     week_end = week_start + timedelta(days=6)
+    views = _lesson_views(session, lessons)
     lessons_by_date = {week_start + timedelta(days=offset): [] for offset in range(7)}
     for lesson in lessons:
-        lessons_by_date.setdefault(lesson.lesson_date, []).append(_lesson_view(session, lesson))
+        lessons_by_date.setdefault(lesson.lesson_date, []).append(views[lesson.id])
     return ScheduleWeekView(
         week_start=week_start,
         week_end=week_end,
@@ -612,6 +618,46 @@ def _lesson_view(session, lesson: Lesson) -> LessonView:
         teacher_absence=teacher_absence,
         room_name=room.source_name if room else None,
     )
+
+
+def _lesson_views(session, lessons: list[Lesson]) -> dict[int, LessonView]:
+    """Build LessonViews for many lessons with a fixed number of queries.
+
+    Prefetches every entity table and all absences once, then resolves each
+    lesson in memory — avoids the per-lesson entity/absence lookups that make
+    _lesson_view an N+1 when a whole week is rendered.
+    """
+    groups = {group.id: group for group in repository.get_all_groups_ordered(session)}
+    subjects = {subject.id: subject for subject in repository.get_all_subjects(session)}
+    teachers = {teacher.id: teacher for teacher in repository.get_all_teachers(session)}
+    rooms = {room.id: room for room in repository.get_all_rooms(session)}
+    absences_by_teacher = teacher_absences_by_teacher(session)
+
+    views: dict[int, LessonView] = {}
+    for lesson in lessons:
+        group = groups.get(lesson.group_id)
+        subject = subjects.get(lesson.subject_id)
+        teacher = teachers.get(lesson.teacher_id) if lesson.teacher_id else None
+        room = rooms.get(lesson.room_id) if lesson.room_id else None
+        absence = None
+        if lesson.teacher_id:
+            absence = next(
+                (
+                    candidate
+                    for candidate in absences_by_teacher.get(lesson.teacher_id, [])
+                    if absence_matches_slot(candidate, lesson_date=lesson.lesson_date, time_slot=lesson.time_slot)
+                ),
+                None,
+            )
+        views[lesson.id] = LessonView(
+            lesson=lesson,
+            group_name=group.source_name if group else "",
+            subject_name=subject.source_name if subject else "",
+            teacher_name=teacher.source_name if teacher else None,
+            teacher_absence=absence,
+            room_name=room.source_name if room else None,
+        )
+    return views
 
 
 def _room_building(room_name: str) -> str:

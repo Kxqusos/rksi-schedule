@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date as Date
+from functools import lru_cache
 
 from app.models import Group, Lesson, Subject
 from app.services.schedule_editor import repository
@@ -328,14 +329,21 @@ def _is_class_hour_lesson(lesson: Lesson, subject_lookup: SubjectLookup) -> bool
     return any(_is_class_hour_lesson_label(str(label)) for label in labels if label is not None)
 
 
+@lru_cache(maxsize=1024)
+def _normalized_label(label: str) -> str:
+    # Pure and called once per lesson per rule pass; the linter reuses the same
+    # handful of subject names / lesson types across ~100k lessons, so memoizing
+    # collapses the string normalization from per-lesson to per-distinct-label.
+    return "".join(character for character in label.casefold() if character.isalnum())
+
+
 def _is_additional_lesson_label(label: str) -> bool:
-    normalized = "".join(character for character in label.casefold() if character.isalnum())
+    normalized = _normalized_label(label)
     return normalized.startswith("доп") and "занят" in normalized
 
 
 def _is_class_hour_lesson_label(label: str) -> bool:
-    normalized = "".join(character for character in label.casefold() if character.isalnum())
-    return normalized == "классныйчас"
+    return _normalized_label(label) == "классныйчас"
 
 
 def _group_slot_teacher_errors(session, group_id: int, lesson_date) -> list[ScheduleProblem]:
@@ -477,6 +485,7 @@ def _excluded_room_errors(session) -> list[ScheduleProblem]:
 
 def _double_booked_teacher_warnings(session, *, lesson_date=None, time_slot: int | None = None) -> list[ScheduleProblem]:
     lessons = repository.get_lessons_with_teacher(session, lesson_date=lesson_date, time_slot=time_slot)
+    teachers_by_id = {teacher.id: teacher for teacher in repository.get_all_teachers(session)}
     grouped: dict[tuple[int, object, int], list[Lesson]] = {}
     for lesson in lessons:
         grouped.setdefault((lesson.teacher_id, lesson.lesson_date, lesson.time_slot), []).append(lesson)
@@ -486,7 +495,7 @@ def _double_booked_teacher_warnings(session, *, lesson_date=None, time_slot: int
         group_ids = {lesson.group_id for lesson in slot_lessons}
         if len(group_ids) <= 1:
             continue
-        teacher = repository.get_teacher_by_id(session, teacher_id)
+        teacher = teachers_by_id.get(teacher_id)
         warnings.append(
             ScheduleProblem(
                 severity="warning",
@@ -503,6 +512,7 @@ def _double_booked_teacher_warnings(session, *, lesson_date=None, time_slot: int
 
 def _double_booked_room_warnings(session, *, lesson_date=None, time_slot: int | None = None) -> list[ScheduleProblem]:
     lessons = repository.get_lessons_with_room(session, lesson_date=lesson_date, time_slot=time_slot)
+    rooms_by_id = {room.id: room for room in repository.get_all_rooms(session)}
     grouped: dict[tuple[int, object, int], list[Lesson]] = {}
     for lesson in lessons:
         grouped.setdefault((lesson.room_id, lesson.lesson_date, lesson.time_slot), []).append(lesson)
@@ -512,7 +522,7 @@ def _double_booked_room_warnings(session, *, lesson_date=None, time_slot: int | 
         group_ids = {lesson.group_id for lesson in slot_lessons}
         if len(group_ids) <= 1:
             continue
-        room = repository.get_room_by_id(session, room_id)
+        room = rooms_by_id.get(room_id)
         warnings.append(
             ScheduleProblem(
                 severity="warning",
