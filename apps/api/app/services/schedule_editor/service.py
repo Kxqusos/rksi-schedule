@@ -91,11 +91,19 @@ class EntityRefView:
 
 
 @dataclass(frozen=True, slots=True)
+class WeekRangeView:
+    week_number: int
+    start: Date
+    end: Date
+
+
+@dataclass(frozen=True, slots=True)
 class ScheduleIndexView:
     groups: list[EntityRefView]
     teachers: list[EntityRefView]
     rooms: list[EntityRefView]
     weeks: list[int]
+    week_ranges: list[WeekRangeView]
     latest_week: int | None
 
 
@@ -402,11 +410,16 @@ def get_public_schedule_index(session) -> ScheduleIndexView:
     weeks = sorted(
         {int(week) for week in repository.get_distinct_week_numbers(session) if week is not None}
     )
+    week_ranges = [
+        WeekRangeView(week_number=week, start=start, end=end)
+        for week, start, end in repository.get_week_date_ranges(session)
+    ]
     return ScheduleIndexView(
         groups=[EntityRefView(id=group.id, name=group.source_name) for group in groups if group.source_name],
         teachers=[EntityRefView(id=teacher.id, name=teacher.source_name) for teacher in teachers if teacher.source_name],
         rooms=[EntityRefView(id=room.id, name=room.source_name) for room in rooms if room.source_name],
         weeks=weeks,
+        week_ranges=week_ranges,
         latest_week=get_latest_week_number(session),
     )
 

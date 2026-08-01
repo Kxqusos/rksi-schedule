@@ -1674,6 +1674,11 @@ components:
             type: integer
           type: array
           title: Weeks
+        week_ranges:
+          items:
+            "$ref": "#/components/schemas/PublicWeekRange"
+          type: array
+          title: Week Ranges
         latest_week:
           anyOf:
           - type: integer
@@ -1707,6 +1712,25 @@ components:
           title: Days
       type: object
       title: PublicScheduleWeekResponse
+    PublicWeekRange:
+      properties:
+        week_number:
+          type: integer
+          title: Week Number
+        start:
+          type: string
+          format: date
+          title: Start
+        end:
+          type: string
+          format: date
+          title: End
+      type: object
+      required:
+      - week_number
+      - start
+      - end
+      title: PublicWeekRange
     RoomCreateRequest:
       properties:
         name:

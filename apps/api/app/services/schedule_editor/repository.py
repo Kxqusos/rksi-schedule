@@ -80,6 +80,16 @@ def get_distinct_week_numbers(session) -> list[int | None]:
     return session.scalars(select(Lesson.week_number).distinct()).all()
 
 
+def get_week_date_ranges(session) -> list[tuple[int, object, object]]:
+    """(week_number, first_date, last_date) per week, ordered by week_number."""
+    rows = session.execute(
+        select(Lesson.week_number, func.min(Lesson.lesson_date), func.max(Lesson.lesson_date))
+        .group_by(Lesson.week_number)
+        .order_by(Lesson.week_number)
+    ).all()
+    return [(int(week), start, end) for week, start, end in rows if week is not None]
+
+
 def get_distinct_lesson_dates(session) -> list:
     return session.scalars(select(Lesson.lesson_date).distinct()).all()
 

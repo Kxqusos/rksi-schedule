@@ -10,6 +10,7 @@ from app.schemas.schedule_edit import (
     PublicScheduleDayResponse,
     PublicScheduleIndexResponse,
     PublicScheduleWeekResponse,
+    PublicWeekRange,
     ScheduleProblemResponse,
     ScheduleSlotRoomResponse,
 )
@@ -138,6 +139,10 @@ def schedule_index_view_to_response(view: ScheduleIndexView) -> PublicScheduleIn
         teachers=[PublicEntityRef(id=ref.id, name=ref.name) for ref in view.teachers],
         rooms=[PublicEntityRef(id=ref.id, name=ref.name) for ref in view.rooms],
         weeks=view.weeks,
+        week_ranges=[
+            PublicWeekRange(week_number=item.week_number, start=item.start, end=item.end)
+            for item in view.week_ranges
+        ],
         latest_week=view.latest_week,
     )
 

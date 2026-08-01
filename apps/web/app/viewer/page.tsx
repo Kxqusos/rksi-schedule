@@ -1,7 +1,7 @@
 "use client";
 
-import { RefreshCw, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { DoorOpen, RefreshCw, Search, User, Users } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
 
@@ -36,15 +36,20 @@ type PublicScheduleWeek = {
 
 type EntityRef = { id: number; name: string };
 
+type WeekRange = { week_number: number; start: string; end: string };
+
 type PublicIndex = {
   groups: EntityRef[];
   teachers: EntityRef[];
   rooms: EntityRef[];
   weeks: number[];
+  week_ranges: WeekRange[];
   latest_week: number | null;
 };
 
 type EntityType = "group" | "teacher" | "room";
+
+type EntitySuggestion = { id: number; name: string; type: EntityType };
 
 const weekdayLabels = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
@@ -54,15 +59,59 @@ const entityConfig: Record<EntityType, { label: string; listKey: "groups" | "tea
   room: { label: "Кабинет", listKey: "rooms", path: "by-room", param: "room_id" },
 };
 
+const SUGGESTION_LIMIT = 10;
+
+function normalize(value: string) {
+  return value.trim().toLocaleLowerCase("ru-RU");
+}
+
+function toLocalISODate(value: Date) {
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+}
+
+// The schedule week rolls over at Sunday 00:00: from Sunday onward we show the
+// upcoming Mon–Sat week. Maps that week's Monday to a seeded week_number, falling
+// back to the most recent past week (covers breaks / out-of-year dates).
+function currentWeekNumber(ranges: WeekRange[], latestWeek: number | null): number | null {
+  if (ranges.length === 0) {
+    return latestWeek;
+  }
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Sunday
+  const offsetToMonday = dayOfWeek === 0 ? 1 : 1 - dayOfWeek;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offsetToMonday);
+  const mondayISO = toLocalISODate(monday);
+
+  const exact = ranges.find((range) => range.start === mondayISO);
+  if (exact) {
+    return exact.week_number;
+  }
+  const past = ranges.filter((range) => range.start <= mondayISO);
+  if (past.length > 0) {
+    return past[past.length - 1].week_number;
+  }
+  return ranges[0].week_number;
+}
+
+function msUntilNextSundayMidnight(now: Date) {
+  const daysUntilSunday = (7 - now.getDay()) % 7;
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (daysUntilSunday === 0 ? 7 : daysUntilSunday));
+  const delay = next.getTime() - now.getTime();
+  return delay > 0 ? delay : delay + 7 * 24 * 60 * 60 * 1000;
+}
+
 export default function ScheduleViewerPage() {
   const [index, setIndex] = useState<PublicIndex | null>(null);
-  const [entityType, setEntityType] = useState<EntityType>("group");
-  const [entityId, setEntityId] = useState<number | null>(null);
   const [week, setWeek] = useState<number | null>(null);
   const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const [selected, setSelected] = useState<EntitySuggestion | null>(null);
   const [weekData, setWeekData] = useState<PublicScheduleWeek | null>(null);
   const [status, setStatus] = useState("Загрузка расписания.");
   const [busy, setBusy] = useState(true);
+  const comboboxRef = useRef<HTMLDivElement>(null);
 
   const loadIndex = async () => {
     setBusy(true);
@@ -73,9 +122,8 @@ export default function ScheduleViewerPage() {
       }
       const payload = (await response.json()) as PublicIndex;
       setIndex(payload);
-      setWeek(payload.latest_week ?? payload.weeks[payload.weeks.length - 1] ?? null);
-      setEntityId(payload.groups[0]?.id ?? null);
-      setStatus(payload.groups.length > 0 ? "" : "Расписание пока не загружено.");
+      setWeek(currentWeekNumber(payload.week_ranges, payload.latest_week));
+      setStatus(payload.groups.length + payload.teachers.length + payload.rooms.length > 0 ? "" : "Расписание пока не загружено.");
     } catch {
       setStatus("Не удалось загрузить расписание.");
     } finally {
@@ -87,26 +135,71 @@ export default function ScheduleViewerPage() {
     void loadIndex();
   }, []);
 
-  const entities = useMemo<EntityRef[]>(() => (index ? index[entityConfig[entityType].listKey] : []), [index, entityType]);
-
-  const visibleEntities = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("ru-RU");
-    if (!normalized) {
-      return entities;
+  // Roll the displayed week over at Sunday 00:00 without a reload.
+  useEffect(() => {
+    if (!index) {
+      return;
     }
-    return entities.filter((entity) => entity.name.toLocaleLowerCase("ru-RU").includes(normalized));
-  }, [entities, query]);
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      timer = setTimeout(() => {
+        setWeek(currentWeekNumber(index.week_ranges, index.latest_week));
+        schedule();
+      }, msUntilNextSundayMidnight(new Date()));
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  }, [index]);
+
+  const allEntities = useMemo<EntitySuggestion[]>(() => {
+    if (!index) {
+      return [];
+    }
+    return [
+      ...index.groups.map((entity) => ({ ...entity, type: "group" as const })),
+      ...index.teachers.map((entity) => ({ ...entity, type: "teacher" as const })),
+      ...index.rooms.map((entity) => ({ ...entity, type: "room" as const })),
+    ];
+  }, [index]);
+
+  const suggestions = useMemo<EntitySuggestion[]>(() => {
+    const normalized = normalize(query);
+    if (!normalized) {
+      return [];
+    }
+    const scored = allEntities
+      .map((entity) => ({ entity, at: normalize(entity.name).indexOf(normalized) }))
+      .filter((candidate) => candidate.at >= 0)
+      .sort((a, b) => a.at - b.at || a.entity.name.localeCompare(b.entity.name, "ru-RU"));
+    return scored.slice(0, SUGGESTION_LIMIT).map((candidate) => candidate.entity);
+  }, [allEntities, query]);
+
+  // Suggestions never query the schedule; only picking one does.
+  const showSuggestions = open && suggestions.length > 0;
+
+  useEffect(() => {
+    if (!showSuggestions) {
+      return;
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      if (comboboxRef.current && !comboboxRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [showSuggestions]);
 
   const loadWeek = async () => {
-    if (entityId == null || week == null) {
+    if (selected == null || week == null) {
       setWeekData(null);
       return;
     }
     setBusy(true);
     try {
-      const config = entityConfig[entityType];
+      const config = entityConfig[selected.type];
       const response = await fetch(
-        `${apiBaseUrl}/schedule/public/${config.path}?${config.param}=${entityId}&week=${week}`,
+        `${apiBaseUrl}/schedule/public/${config.path}?${config.param}=${selected.id}&week=${week}`,
         { cache: "no-store" },
       );
       if (!response.ok) {
@@ -124,15 +217,47 @@ export default function ScheduleViewerPage() {
   useEffect(() => {
     void loadWeek();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entityType, entityId, week]);
+  }, [selected, week]);
 
-  const selectEntityType = (nextType: EntityType) => {
-    setEntityType(nextType);
-    setQuery("");
-    setEntityId(index?.[entityConfig[nextType].listKey][0]?.id ?? null);
+  const pickSuggestion = (suggestion: EntitySuggestion) => {
+    setSelected(suggestion);
+    setQuery(suggestion.name);
+    setOpen(false);
+    setHighlight(0);
   };
 
-  const selectedEntity = entities.find((entity) => entity.id === entityId) ?? null;
+  const onQueryChange = (value: string) => {
+    setQuery(value);
+    setOpen(true);
+    setHighlight(0);
+  };
+
+  const onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions) {
+      if (event.key === "ArrowDown" && suggestions.length > 0) {
+        setOpen(true);
+        setHighlight(0);
+        event.preventDefault();
+      }
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      setHighlight((current) => (current + 1) % suggestions.length);
+      event.preventDefault();
+    } else if (event.key === "ArrowUp") {
+      setHighlight((current) => (current - 1 + suggestions.length) % suggestions.length);
+      event.preventDefault();
+    } else if (event.key === "Enter") {
+      const choice = suggestions[highlight];
+      if (choice) {
+        pickSuggestion(choice);
+        event.preventDefault();
+      }
+    } else if (event.key === "Escape") {
+      setOpen(false);
+    }
+  };
+
   const lessons = useMemo(() => weekData?.days.flatMap((day) => day.lessons) ?? [], [weekData]);
   const weekRange =
     weekData?.week_start && weekData.week_end ? `${formatDate(weekData.week_start)} - ${formatDate(weekData.week_end)}` : "";
@@ -150,8 +275,8 @@ export default function ScheduleViewerPage() {
         </div>
         <div className="viewer-header__side">
           <div className="viewer-stat">
-            <span>{entityConfig[entityType].label}</span>
-            <strong>{selectedEntity?.name ?? "—"}</strong>
+            <span>{selected ? entityConfig[selected.type].label : "Не выбрано"}</span>
+            <strong>{selected?.name ?? "—"}</strong>
           </div>
           <div className="viewer-stat">
             <span>Занятий</span>
@@ -161,53 +286,49 @@ export default function ScheduleViewerPage() {
       </header>
 
       <section className="viewer-toolbar" aria-label="Управление расписанием">
-        <div className="viewer-segmented" role="tablist" aria-label="Тип поиска">
-          {(Object.keys(entityConfig) as EntityType[]).map((type) => (
-            <button
-              aria-selected={entityType === type}
-              className={entityType === type ? "viewer-segmented__button viewer-segmented__button--active" : "viewer-segmented__button"}
-              key={type}
-              onClick={() => selectEntityType(type)}
-              role="tab"
-              type="button"
-            >
-              {entityConfig[type].label}
-            </button>
-          ))}
+        <div className="viewer-combobox" ref={comboboxRef}>
+          <label className="viewer-search">
+            <Search aria-hidden="true" size={17} strokeWidth={2} />
+            <input
+              aria-activedescendant={showSuggestions ? `viewer-suggestion-${highlight}` : undefined}
+              aria-autocomplete="list"
+              aria-controls="viewer-suggestions"
+              aria-expanded={showSuggestions}
+              autoComplete="off"
+              onChange={(event) => onQueryChange(event.target.value)}
+              onFocus={() => setOpen(true)}
+              onKeyDown={onSearchKeyDown}
+              placeholder="Найти группу, преподавателя или кабинет"
+              role="combobox"
+              value={query}
+            />
+          </label>
+          {showSuggestions ? (
+            <ul className="viewer-suggestions" id="viewer-suggestions" role="listbox">
+              {suggestions.map((suggestion, itemIndex) => (
+                <li
+                  aria-selected={itemIndex === highlight}
+                  className={
+                    itemIndex === highlight ? "viewer-suggestion viewer-suggestion--active" : "viewer-suggestion"
+                  }
+                  id={`viewer-suggestion-${itemIndex}`}
+                  key={`${suggestion.type}-${suggestion.id}`}
+                  onMouseEnter={() => setHighlight(itemIndex)}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    pickSuggestion(suggestion);
+                  }}
+                  role="option"
+                >
+                  <SuggestionIcon type={suggestion.type} />
+                  <span className="viewer-suggestion__name">{suggestion.name}</span>
+                  <span className="viewer-suggestion__badge">{entityConfig[suggestion.type].label}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
-        <label className="viewer-search">
-          <Search aria-hidden="true" size={17} strokeWidth={2} />
-          <input
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={`Найти: ${entityConfig[entityType].label.toLocaleLowerCase("ru-RU")}`}
-            value={query}
-          />
-        </label>
-        <select
-          aria-label={entityConfig[entityType].label}
-          className="viewer-select"
-          onChange={(event) => setEntityId(Number(event.target.value))}
-          value={entityId ?? ""}
-        >
-          {visibleEntities.map((entity) => (
-            <option key={entity.id} value={entity.id}>
-              {entity.name}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Неделя"
-          className="viewer-select"
-          onChange={(event) => setWeek(Number(event.target.value))}
-          value={week ?? ""}
-        >
-          {(index?.weeks ?? []).map((weekNumber) => (
-            <option key={weekNumber} value={weekNumber}>
-              {weekNumber} неделя
-            </option>
-          ))}
-        </select>
-        <button className="viewer-refresh" disabled={busy} onClick={loadWeek} type="button">
+        <button className="viewer-refresh" disabled={busy || selected == null} onClick={loadWeek} type="button">
           <RefreshCw aria-hidden="true" className={busy ? "viewer-refresh__icon viewer-refresh__icon--spin" : "viewer-refresh__icon"} size={16} />
           <span>{busy ? "Обновляем" : "Обновить"}</span>
         </button>
@@ -219,31 +340,35 @@ export default function ScheduleViewerPage() {
         </section>
       ) : null}
 
-      {busy ? (
+      {selected == null ? (
+        <section className="viewer-empty">Начните вводить группу, преподавателя или кабинет.</section>
+      ) : busy ? (
         <ViewerSkeleton />
-      ) : weekData && selectedEntity ? (
-        <section className="viewer-table-wrap" aria-label={`Расписание: ${selectedEntity.name}`}>
+      ) : weekData ? (
+        <section className="viewer-table-wrap" aria-label={`Расписание: ${selected.name}`}>
           <div className="viewer-table">
             <div className="viewer-table__head">
-              <div className="viewer-table__group-head">{entityConfig[entityType].label}</div>
-              {weekData.days.map((day, dayIndex) => (
-                <div className="viewer-table__day-head" key={day.date}>
-                  <strong>{weekdayLabels[dayIndex] ?? day.weekday}</strong>
-                  <span>{formatShortDate(day.date)}</span>
-                </div>
-              ))}
+              {weekData.days
+                .filter((day) => day.weekday !== 7)
+                .map((day, dayIndex) => (
+                  <div className="viewer-table__day-head" key={day.date}>
+                    <strong>{weekdayLabels[dayIndex] ?? day.weekday}</strong>
+                    <span>{formatShortDate(day.date)}</span>
+                  </div>
+                ))}
             </div>
             <div className="viewer-table__row">
-              <div className="viewer-table__group">{selectedEntity.name}</div>
-              {weekData.days.map((day) => (
-                <div className="viewer-table__cell" key={`${selectedEntity.id}-${day.date}`}>
-                  {day.lessons.length > 0 ? (
-                    day.lessons.map((lesson) => <LessonCard entityType={entityType} key={lesson.id} lesson={lesson} />)
-                  ) : (
-                    <span className="viewer-empty-cell">Нет занятий</span>
-                  )}
-                </div>
-              ))}
+              {weekData.days
+                .filter((day) => day.weekday !== 7)
+                .map((day) => (
+                  <div className="viewer-table__cell" key={`${selected.id}-${day.date}`}>
+                    {day.lessons.length > 0 ? (
+                      day.lessons.map((lesson) => <LessonCard entityType={selected.type} key={lesson.id} lesson={lesson} />)
+                    ) : (
+                      <span className="viewer-empty-cell">Нет занятий</span>
+                    )}
+                  </div>
+                ))}
             </div>
           </div>
         </section>
@@ -252,6 +377,11 @@ export default function ScheduleViewerPage() {
       )}
     </main>
   );
+}
+
+function SuggestionIcon({ type }: { type: EntityType }) {
+  const Icon = type === "group" ? Users : type === "teacher" ? User : DoorOpen;
+  return <Icon aria-hidden="true" className="viewer-suggestion__icon" size={16} strokeWidth={2} />;
 }
 
 function LessonCard({ lesson, entityType }: { lesson: PublicLesson; entityType: EntityType }) {

@@ -105,9 +105,16 @@ class PublicEntityRef(BaseModel):
     name: str
 
 
+class PublicWeekRange(BaseModel):
+    week_number: int
+    start: Date
+    end: Date
+
+
 class PublicScheduleIndexResponse(BaseModel):
     groups: list[PublicEntityRef] = Field(default_factory=list)
     teachers: list[PublicEntityRef] = Field(default_factory=list)
     rooms: list[PublicEntityRef] = Field(default_factory=list)
     weeks: list[int] = Field(default_factory=list)
+    week_ranges: list[PublicWeekRange] = Field(default_factory=list)
     latest_week: int | None = None
