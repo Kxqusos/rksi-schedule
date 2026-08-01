@@ -1,6 +1,6 @@
 "use client";
 
-import { DoorOpen, RefreshCw, Search, User, Users } from "lucide-react";
+import { DoorOpen, Moon, Search, Sun, User, Users } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
@@ -51,7 +51,10 @@ type EntityType = "group" | "teacher" | "room";
 
 type EntitySuggestion = { id: number; name: string; type: EntityType };
 
+type Theme = "light" | "dark";
+
 const weekdayLabels = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+const weekdayFull = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"];
 
 const entityConfig: Record<EntityType, { label: string; listKey: "groups" | "teachers" | "rooms"; path: string; param: string }> = {
   group: { label: "Группа", listKey: "groups", path: "by-group", param: "group_id" },
@@ -60,9 +63,14 @@ const entityConfig: Record<EntityType, { label: string; listKey: "groups" | "tea
 };
 
 const SUGGESTION_LIMIT = 10;
+const THEME_STORAGE_KEY = "viewer-theme";
 
 function normalize(value: string) {
   return value.trim().toLocaleLowerCase("ru-RU");
+}
+
+function isForeignLanguage(subject: string) {
+  return normalize(subject).includes("иностран");
 }
 
 function toLocalISODate(value: Date) {
@@ -111,7 +119,32 @@ export default function ScheduleViewerPage() {
   const [weekData, setWeekData] = useState<PublicScheduleWeek | null>(null);
   const [status, setStatus] = useState("Загрузка расписания.");
   const [busy, setBusy] = useState(true);
+  const [activeDate, setActiveDate] = useState<string | null>(null);
+  const [theme, setTheme] = useState<Theme>("light");
   const comboboxRef = useRef<HTMLDivElement>(null);
+  const weekViewRef = useRef<HTMLDivElement>(null);
+
+  const todayISO = toLocalISODate(new Date());
+
+  // Resolve theme from storage, then system preference, after mount (avoids SSR mismatch).
+  useEffect(() => {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "light" || stored === "dark") {
+      setTheme(stored);
+      return;
+    }
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      setTheme("dark");
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    setTheme((prev) => {
+      const next: Theme = prev === "dark" ? "light" : "dark";
+      window.localStorage.setItem(THEME_STORAGE_KEY, next);
+      return next;
+    });
+  };
 
   const loadIndex = async () => {
     setBusy(true);
@@ -214,10 +247,40 @@ export default function ScheduleViewerPage() {
     }
   };
 
+  // Auto-loads whenever the selection or displayed week changes (no manual refresh button).
   useEffect(() => {
     void loadWeek();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, week]);
+
+  const days = useMemo(() => weekData?.days.filter((day) => day.weekday !== 7) ?? [], [weekData]);
+
+  // Keep the active tab valid: prefer today, else the first day.
+  useEffect(() => {
+    if (days.length === 0) {
+      setActiveDate(null);
+      return;
+    }
+    setActiveDate((prev) => {
+      if (prev && days.some((day) => day.date === prev)) {
+        return prev;
+      }
+      const today = days.find((day) => day.date === todayISO);
+      return today ? today.date : days[0].date;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days]);
+
+  // On mobile, bring the day view into focus when a new schedule loads.
+  useEffect(() => {
+    if (!weekData || days.length === 0) {
+      return;
+    }
+    if (window.innerWidth <= 767) {
+      weekViewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekData]);
 
   const pickSuggestion = (suggestion: EntitySuggestion) => {
     setSelected(suggestion);
@@ -258,37 +321,26 @@ export default function ScheduleViewerPage() {
     }
   };
 
-  const lessons = useMemo(() => weekData?.days.flatMap((day) => day.lessons) ?? [], [weekData]);
-  const weekRange =
-    weekData?.week_start && weekData.week_end ? `${formatDate(weekData.week_start)} - ${formatDate(weekData.week_end)}` : "";
+  const activeIndex = days.findIndex((day) => day.date === activeDate);
+  const activeDay = activeIndex >= 0 ? days[activeIndex] : null;
 
   return (
-    <main className="viewer-shell">
-      <header className="viewer-header">
-        <div className="viewer-header__main">
-          <div className="viewer-brand">RKSI Schedule</div>
-          <h1>Расписание занятий</h1>
-          <div className="viewer-week">
-            {weekRange ? <span>{weekRange}</span> : <span>Неделя не выбрана</span>}
-            {weekData?.week_number ? <strong>{weekData.week_number} неделя</strong> : null}
-          </div>
+    <main className="viewer-shell" data-theme={theme}>
+      <div className="viewer-inner">
+        <div className="viewer-topbar">
+          <button
+            className="viewer-theme"
+            onClick={toggleTheme}
+            type="button"
+            aria-label={theme === "dark" ? "Светлая тема" : "Тёмная тема"}
+          >
+            {theme === "dark" ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
+          </button>
         </div>
-        <div className="viewer-header__side">
-          <div className="viewer-stat">
-            <span>{selected ? entityConfig[selected.type].label : "Не выбрано"}</span>
-            <strong>{selected?.name ?? "—"}</strong>
-          </div>
-          <div className="viewer-stat">
-            <span>Занятий</span>
-            <strong>{lessons.length}</strong>
-          </div>
-        </div>
-      </header>
 
-      <section className="viewer-toolbar" aria-label="Управление расписанием">
         <div className="viewer-combobox" ref={comboboxRef}>
           <label className="viewer-search">
-            <Search aria-hidden="true" size={17} strokeWidth={2} />
+            <Search aria-hidden="true" size={18} strokeWidth={2} />
             <input
               aria-activedescendant={showSuggestions ? `viewer-suggestion-${highlight}` : undefined}
               aria-autocomplete="list"
@@ -308,9 +360,7 @@ export default function ScheduleViewerPage() {
               {suggestions.map((suggestion, itemIndex) => (
                 <li
                   aria-selected={itemIndex === highlight}
-                  className={
-                    itemIndex === highlight ? "viewer-suggestion viewer-suggestion--active" : "viewer-suggestion"
-                  }
+                  className={itemIndex === highlight ? "viewer-suggestion viewer-suggestion--active" : "viewer-suggestion"}
                   id={`viewer-suggestion-${itemIndex}`}
                   key={`${suggestion.type}-${suggestion.id}`}
                   onMouseEnter={() => setHighlight(itemIndex)}
@@ -328,53 +378,59 @@ export default function ScheduleViewerPage() {
             </ul>
           ) : null}
         </div>
-        <button className="viewer-refresh" disabled={busy || selected == null} onClick={loadWeek} type="button">
-          <RefreshCw aria-hidden="true" className={busy ? "viewer-refresh__icon viewer-refresh__icon--spin" : "viewer-refresh__icon"} size={16} />
-          <span>{busy ? "Обновляем" : "Обновить"}</span>
-        </button>
-      </section>
 
-      {status ? (
-        <section className="viewer-status" aria-live="polite">
-          {status}
-        </section>
-      ) : null}
-
-      {selected == null ? (
-        <section className="viewer-empty">Начните вводить группу, преподавателя или кабинет.</section>
-      ) : busy ? (
-        <ViewerSkeleton />
-      ) : weekData ? (
-        <section className="viewer-table-wrap" aria-label={`Расписание: ${selected.name}`}>
-          <div className="viewer-table">
-            <div className="viewer-table__head">
-              {weekData.days
-                .filter((day) => day.weekday !== 7)
-                .map((day, dayIndex) => (
-                  <div className="viewer-table__day-head" key={day.date}>
-                    <strong>{weekdayLabels[dayIndex] ?? day.weekday}</strong>
-                    <span>{formatShortDate(day.date)}</span>
-                  </div>
-                ))}
-            </div>
-            <div className="viewer-table__row">
-              {weekData.days
-                .filter((day) => day.weekday !== 7)
-                .map((day) => (
-                  <div className="viewer-table__cell" key={`${selected.id}-${day.date}`}>
-                    {day.lessons.length > 0 ? (
-                      day.lessons.map((lesson) => <LessonCard entityType={selected.type} key={lesson.id} lesson={lesson} />)
-                    ) : (
-                      <span className="viewer-empty-cell">Нет занятий</span>
-                    )}
-                  </div>
-                ))}
-            </div>
+        {status ? (
+          <div className="viewer-status" aria-live="polite">
+            {status}
           </div>
-        </section>
-      ) : (
-        <section className="viewer-empty">Расписание пока не загружено.</section>
-      )}
+        ) : null}
+
+        {selected == null ? (
+          <div className="viewer-empty">Начните вводить группу, преподавателя или кабинет.</div>
+        ) : busy ? (
+          <ViewerSkeleton />
+        ) : activeDay ? (
+          <div className="viewer-week-view" ref={weekViewRef}>
+            <div className="viewer-tabs" role="tablist">
+              {days.map((day, dayIndex) => {
+                const isActive = day.date === activeDate;
+                const isToday = day.date === todayISO;
+                const className = ["viewer-tab", isActive ? "viewer-tab--active" : "", isToday ? "viewer-tab--today" : ""]
+                  .filter(Boolean)
+                  .join(" ");
+                return (
+                  <button
+                    aria-selected={isActive}
+                    className={className}
+                    key={day.date}
+                    onClick={() => setActiveDate(day.date)}
+                    role="tab"
+                    type="button"
+                  >
+                    <strong>{weekdayLabels[dayIndex] ?? day.weekday}</strong>
+                    <span className="viewer-tab__date">{formatShortDate(day.date)}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <section className="viewer-day" aria-label={`Расписание: ${selected.name}`}>
+              <div className="viewer-day__head">
+                {weekdayFull[activeIndex] ?? ""} · {formatShortDate(activeDay.date)}
+              </div>
+              {activeDay.lessons.length > 0 ? (
+                activeDay.lessons.map((lesson) => (
+                  <LessonCard entityType={selected.type} key={lesson.id} lesson={lesson} />
+                ))
+              ) : (
+                <div className="viewer-day-empty">В этот день занятий нет.</div>
+              )}
+            </section>
+          </div>
+        ) : (
+          <div className="viewer-empty">Расписание пока не загружено.</div>
+        )}
+      </div>
     </main>
   );
 }
@@ -385,47 +441,48 @@ function SuggestionIcon({ type }: { type: EntityType }) {
 }
 
 function LessonCard({ lesson, entityType }: { lesson: PublicLesson; entityType: EntityType }) {
+  const metaParts: string[] = [];
+  if (entityType !== "group") {
+    metaParts.push(lesson.group_name);
+  }
+  if (entityType !== "teacher" && lesson.teacher_name) {
+    metaParts.push(lesson.teacher_name);
+  }
+  if (entityType !== "room" && lesson.room_name) {
+    metaParts.push(lesson.room_name);
+  }
+  if (lesson.subgroup > 0 && !isForeignLanguage(lesson.subject)) {
+    metaParts.push(`${lesson.subgroup} подгр.`);
+  }
   return (
     <article className="viewer-lesson">
       <div className="viewer-lesson__top">
-        <span>{lesson.time_slot} пара</span>
-        <strong>{formatTimeRange(lesson.time_start, lesson.time_end)}</strong>
+        <span className="viewer-lesson__pair">{lesson.time_slot} пара</span>
+        <span className="viewer-lesson__time">{formatTimeRange(lesson.time_start, lesson.time_end)}</span>
       </div>
       <div className="viewer-lesson__subject">{lesson.subject}</div>
-      <div className="viewer-lesson__meta">
-        {entityType !== "group" ? <span>{lesson.group_name}</span> : null}
-        {entityType !== "teacher" && lesson.teacher_name ? <span>{lesson.teacher_name}</span> : null}
-        {entityType !== "room" && lesson.room_name ? <span>{lesson.room_name}</span> : null}
-        {lesson.subgroup > 0 ? <span>{lesson.subgroup} подгр.</span> : null}
-      </div>
+      {metaParts.length > 0 ? (
+        <div className="viewer-lesson__meta">
+          {metaParts.map((part, partIndex) => (
+            <span key={partIndex}>{part}</span>
+          ))}
+        </div>
+      ) : null}
     </article>
   );
 }
 
 function ViewerSkeleton() {
   return (
-    <section className="viewer-skeleton" aria-label="Загрузка">
-      {Array.from({ length: 8 }, (_, index) => (
-        <div className="viewer-skeleton__row" key={index}>
-          <div />
-          <span />
-          <span />
-          <span />
-        </div>
+    <div className="viewer-skeleton" aria-label="Загрузка">
+      {Array.from({ length: 5 }, (_, index) => (
+        <div className="viewer-skeleton__card" key={index} />
       ))}
-    </section>
+    </div>
   );
 }
 
-function formatDate(value: string) {
-  return formatPlainDate(value);
-}
-
 function formatShortDate(value: string) {
-  return formatPlainDate(value);
-}
-
-function formatPlainDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   if (!year || !month || !day) {
     return value;
