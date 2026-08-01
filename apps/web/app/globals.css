@@ -2144,15 +2144,6 @@ button {
     padding: 20px;
   }
 
-  .viewer-table {
-    min-width: 1080px;
-  }
-
-  .viewer-table__head,
-  .viewer-table__row {
-    grid-template-columns: 132px repeat(7, minmax(126px, 1fr));
-  }
-
   .import-page {
     width: min(980px, 100%);
   }
@@ -2199,15 +2190,6 @@ button {
     --sidebar-width: 236px;
   }
 
-  .viewer-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .viewer-table {
-    min-width: 1040px;
-  }
-
   .sidebar {
     padding: 16px 12px;
   }
@@ -2234,24 +2216,6 @@ button {
 }
 
 @media (max-width: 1024px) {
-  .viewer-header h1 {
-    font-size: 28px;
-  }
-
-  .viewer-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .viewer-combobox,
-  .viewer-search {
-    width: 100%;
-  }
-
-  .viewer-refresh {
-    align-self: flex-start;
-  }
-
   .app-shell {
     grid-template-columns: 76px minmax(0, 1fr);
   }
@@ -2335,14 +2299,6 @@ button {
     padding: 16px;
   }
 
-  .viewer-header__side {
-    width: 100%;
-  }
-
-  .viewer-stat {
-    flex: 1 1 0;
-  }
-
   .app-shell {
     grid-template-columns: 68px minmax(0, 1fr);
   }
@@ -2373,44 +2329,6 @@ button {
 @media (max-width: 767px) {
   .viewer-shell {
     padding: 12px;
-  }
-
-  .viewer-header {
-    gap: 14px;
-    padding-bottom: 14px;
-  }
-
-  .viewer-header h1 {
-    font-size: 24px;
-  }
-
-  .viewer-week {
-    font-size: 13px;
-  }
-
-  .viewer-header__side {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .viewer-table-wrap {
-    margin-inline: -12px;
-    border-left: 0;
-    border-right: 0;
-    border-radius: 0;
-  }
-
-  .viewer-table {
-    min-width: 960px;
-  }
-
-  .viewer-table__head,
-  .viewer-table__row {
-    grid-template-columns: 118px repeat(7, minmax(120px, 1fr));
-  }
-
-  .viewer-skeleton__row {
-    grid-template-columns: 96px 1fr 1fr;
   }
 
   .app-shell {
