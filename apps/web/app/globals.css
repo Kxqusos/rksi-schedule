@@ -2150,10 +2150,6 @@ button {
     --sidebar-width: 252px;
   }
 
-  .viewer-shell {
-    padding: 20px;
-  }
-
   .import-page {
     width: min(980px, 100%);
   }
@@ -2304,11 +2300,6 @@ button {
 }
 
 @media (max-width: 880px) {
-  .viewer-shell {
-    gap: 14px;
-    padding: 16px;
-  }
-
   .app-shell {
     grid-template-columns: 68px minmax(0, 1fr);
   }
@@ -2337,10 +2328,6 @@ button {
 }
 
 @media (max-width: 767px) {
-  .viewer-shell {
-    padding: 12px;
-  }
-
   .app-shell {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
