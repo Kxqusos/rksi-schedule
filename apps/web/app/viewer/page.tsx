@@ -62,6 +62,8 @@ const entityConfig: Record<EntityType, { label: string; listKey: "groups" | "tea
   room: { label: "Кабинет", listKey: "rooms", path: "by-room", param: "room_id" },
 };
 
+const suggestionTypeOrder: Record<EntityType, number> = { group: 0, teacher: 1, room: 2 };
+
 const SUGGESTION_LIMIT = 10;
 const THEME_STORAGE_KEY = "viewer-theme";
 
@@ -203,7 +205,12 @@ export default function ScheduleViewerPage() {
     const scored = allEntities
       .map((entity) => ({ entity, at: normalize(entity.name).indexOf(normalized) }))
       .filter((candidate) => candidate.at >= 0)
-      .sort((a, b) => a.at - b.at || a.entity.name.localeCompare(b.entity.name, "ru-RU"));
+      .sort(
+        (a, b) =>
+          suggestionTypeOrder[a.entity.type] - suggestionTypeOrder[b.entity.type] ||
+          a.at - b.at ||
+          a.entity.name.localeCompare(b.entity.name, "ru-RU"),
+      );
     return scored.slice(0, SUGGESTION_LIMIT).map((candidate) => candidate.entity);
   }, [allEntities, query]);
 
