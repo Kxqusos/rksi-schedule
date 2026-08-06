@@ -63,8 +63,12 @@ const entityConfig: Record<EntityType, { label: string; listKey: "groups" | "tea
 };
 
 const suggestionTypeOrder: Record<EntityType, number> = { group: 0, teacher: 1, room: 2 };
+const suggestionTypes = (Object.keys(suggestionTypeOrder) as EntityType[]).sort(
+  (a, b) => suggestionTypeOrder[a] - suggestionTypeOrder[b],
+);
 
 const SUGGESTION_LIMIT = 10;
+const SUGGESTION_TYPE_QUOTA = 3;
 const THEME_STORAGE_KEY = "viewer-theme";
 
 function normalize(value: string) {
@@ -205,13 +209,19 @@ export default function ScheduleViewerPage() {
     const scored = allEntities
       .map((entity) => ({ entity, at: normalize(entity.name).indexOf(normalized) }))
       .filter((candidate) => candidate.at >= 0)
-      .sort(
-        (a, b) =>
-          suggestionTypeOrder[a.entity.type] - suggestionTypeOrder[b.entity.type] ||
-          a.at - b.at ||
-          a.entity.name.localeCompare(b.entity.name, "ru-RU"),
-      );
-    return scored.slice(0, SUGGESTION_LIMIT).map((candidate) => candidate.entity);
+      .sort((a, b) => a.at - b.at || a.entity.name.localeCompare(b.entity.name, "ru-RU"));
+    // Every entity type keeps its own quota, so many matching groups can't squeeze
+    // teachers and rooms out of the list entirely.
+    const byType = suggestionTypes.map((type) => scored.filter((candidate) => candidate.entity.type === type));
+    const taken = byType.map((candidates) => Math.min(candidates.length, SUGGESTION_TYPE_QUOTA));
+    let free = SUGGESTION_LIMIT - taken.reduce((sum, count) => sum + count, 0);
+    // Slots left unused by types with few matches go to the higher-priority types.
+    for (let i = 0; i < byType.length && free > 0; i += 1) {
+      const extra = Math.min(free, byType[i].length - taken[i]);
+      taken[i] += extra;
+      free -= extra;
+    }
+    return byType.flatMap((candidates, i) => candidates.slice(0, taken[i]).map((candidate) => candidate.entity));
   }, [allEntities, query]);
 
   // Suggestions never query the schedule; only picking one does.
