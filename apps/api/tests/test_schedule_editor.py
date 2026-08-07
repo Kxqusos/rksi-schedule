@@ -695,6 +695,84 @@ def test_group_window_is_blocked(tmp_path, monkeypatch):
         assert "group day schedule has a window" in response.json()["detail"]
 
 
+def test_first_lesson_of_a_day_is_saved_below_the_daily_minimum(tmp_path, monkeypatch):
+    """A day cannot be started otherwise.
+
+    The daily minimum is two pairs, so the first lesson of any day is always
+    below it. Enforcing that on a single mutation makes the state unreachable:
+    the second lesson would satisfy the rule, but the first one can never be
+    saved to get there.
+    """
+    database_url = f"sqlite:///{tmp_path / 'day_minimum.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    with TestClient(app) as client:
+        response = client.post(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "group_name": "MINIMUM-1",
+                "course": 0,
+                "faculty": "",
+                "subject": "Первая пара дня",
+                "teacher_name": "Свободный О.О.",
+                "teacher_id": None,
+                "teacher_post": "",
+                "room_name": None,
+                "date": "2026-02-23",
+                "time_start": "08:00:00",
+                "time_end": "09:30:00",
+                "weekday": 1,
+                "week_number": 7,
+                "time_slot": 1,
+                "subgroup": 0,
+                "lesson_type": "",
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        # Still reported, just not blocking.
+        assert any(warning["code"] == "group_day_minimum_not_met" for warning in response.json()["warnings"])
+
+
+def test_daily_minimum_stops_warning_once_the_day_is_filled(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'day_minimum_met.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    with TestClient(app) as client:
+        _seed_group_lessons(database_url, group_name="MINIMUM-2", slots=(1,), room_prefix="minimum")
+
+        response = client.post(
+            "/schedule/lessons",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "group_name": "MINIMUM-2",
+                "course": 0,
+                "faculty": "",
+                "subject": "Вторая пара дня",
+                "teacher_name": "Свободный О.О.",
+                "teacher_id": None,
+                "teacher_post": "",
+                "room_name": None,
+                "date": "2026-02-23",
+                "time_start": "09:40:00",
+                "time_end": "11:10:00",
+                "weekday": 1,
+                "week_number": 7,
+                "time_slot": 2,
+                "subgroup": 0,
+                "lesson_type": "",
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        assert not any(warning["code"] == "group_day_minimum_not_met" for warning in response.json()["warnings"])
+
+
 def test_schedule_problems_linter_lists_warnings(tmp_path, monkeypatch):
     database_url = f"sqlite:///{tmp_path / 'problems.db'}"
     migrate_database(database_url)

@@ -13,6 +13,7 @@ CacheKey = tuple[str, int, int]
 from app.services.auth.permissions import Actor
 from app.services.schedule_editor import repository
 from app.services.schedule_editor.problems import (
+    NON_BLOCKING_EDIT_CODES,
     ScheduleProblem,
     _blocking_detail,
     _group_day_errors,
@@ -179,13 +180,15 @@ def create_lesson(
     )
     session.add(lesson)
     session.flush()
-    _ensure_group_rules(session, group_ids={group.id}, dates={lesson_date}, week_numbers={week_number})
+    reported = _ensure_group_rules(session, group_ids={group.id}, dates={lesson_date}, week_numbers={week_number})
     _audit(session, action="create", lesson=lesson, actor=actor, payload=audit_payload)
     lesson_view = _lesson_view(session, lesson)
     cache_keys = _lesson_cache_keys(
         group_id=lesson.group_id, teacher_id=lesson.teacher_id, room_id=lesson.room_id, week_number=lesson.week_number
     )
-    return LessonMutationResult(lesson=lesson_view, warnings=_warnings_for_lesson(session, lesson), cache_keys=cache_keys)
+    return LessonMutationResult(
+        lesson=lesson_view, warnings=_warnings_for_lesson(session, lesson) + reported, cache_keys=cache_keys
+    )
 
 
 def update_lesson(
@@ -282,8 +285,9 @@ def update_lesson(
     if lesson_type is not None:
         lesson.lesson_type = lesson_type
     session.flush()
+    reported: list[ScheduleProblem] = []
     if changed_fields - {"room_name"}:
-        _ensure_group_rules(
+        reported = _ensure_group_rules(
             session,
             group_ids={original_group_id, group_id},
             dates={original_date, lesson.lesson_date},
@@ -308,7 +312,9 @@ def update_lesson(
             group_id=lesson.group_id, teacher_id=lesson.teacher_id, room_id=lesson.room_id, week_number=lesson.week_number
         ),
     )
-    return LessonMutationResult(lesson=lesson_view, warnings=_warnings_for_lesson(session, lesson), cache_keys=cache_keys)
+    return LessonMutationResult(
+        lesson=lesson_view, warnings=_warnings_for_lesson(session, lesson) + reported, cache_keys=cache_keys
+    )
 
 
 def delete_lesson(session, lesson_id: int, actor: Actor) -> list[CacheKey]:
@@ -553,19 +559,27 @@ def _lesson_in_room_slot(
     )
 
 
-def _ensure_group_rules(session, *, group_ids: set[int], dates: set, week_numbers: set[int]) -> None:
+def _ensure_group_rules(session, *, group_ids: set[int], dates: set, week_numbers: set[int]) -> list[ScheduleProblem]:
+    """Raise on the group errors this edit must not leave behind.
+
+    Returns the ones listed in NON_BLOCKING_EDIT_CODES so the caller can report
+    them as warnings on an otherwise successful mutation.
+    """
+    reported: list[ScheduleProblem] = []
     for group_id in group_ids:
         for week_number in week_numbers:
-            errors = _group_week_errors(session, group_id, week_number)
-            if errors:
-                raise ConflictError(_blocking_detail(errors[0]))
+            reported.extend(_raise_on_blocking(_group_week_errors(session, group_id, week_number)))
         for lesson_date in dates:
-            errors = _group_day_errors(session, group_id, lesson_date)
-            if errors:
-                raise ConflictError(_blocking_detail(errors[0]))
-            errors = _group_slot_teacher_errors(session, group_id, lesson_date)
-            if errors:
-                raise ConflictError(_blocking_detail(errors[0]))
+            reported.extend(_raise_on_blocking(_group_day_errors(session, group_id, lesson_date)))
+            reported.extend(_raise_on_blocking(_group_slot_teacher_errors(session, group_id, lesson_date)))
+    return reported
+
+
+def _raise_on_blocking(problems: list[ScheduleProblem]) -> list[ScheduleProblem]:
+    for problem in problems:
+        if problem.code not in NON_BLOCKING_EDIT_CODES:
+            raise ConflictError(_blocking_detail(problem))
+    return problems
 
 
 def _get_or_create_group(session, name: str, course: int, faculty: str) -> Group:

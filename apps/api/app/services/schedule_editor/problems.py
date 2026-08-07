@@ -34,6 +34,11 @@ class ScheduleProblem:
 MAX_GROUP_WEEK_LESSONS = 18
 MAX_GROUP_DAY_LESSONS = 4
 MIN_GROUP_DAY_LESSONS = 2
+# Errors that no single edit can avoid, so they are reported by a mutation
+# instead of blocking it. The first lesson of a day is always below the daily
+# minimum: the second one would satisfy the rule, but it can never be reached
+# because the first save would be rejected. The linter still lists them.
+NON_BLOCKING_EDIT_CODES = {"group_day_minimum_not_met"}
 AGGREGATED_GROUP_PROBLEM_CODES = {
     "group_week_limit_exceeded",
     "group_day_limit_exceeded",

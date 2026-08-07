@@ -89,7 +89,7 @@ Frontend (`apps/web/app/`):
 - Import (`import_schedule/service.py`) never applies linter rules, so all of the above combinations are written to the DB as-is regardless of severity; problems only surface afterward via `/schedule/problems`.
 - One real import-time data-loss case: if a single JSON lesson entry's `teachers`/`auditories` array has more than one element, only `teachers[0]`/`auditories[0]` is kept — the rest is silently dropped (`_get_or_create_teacher`/`_get_or_create_room`). Not observed in `7.json` to date (every entry has 0 or 1 teacher/room); multiple teachers/rooms for one lesson are represented in source data as separate top-level lesson entries (e.g. subgroup splits) instead, which import handles correctly.
 - In "Проблемы" (issues), group-level problems are aggregated: one notification per problem class, one row per group inside it.
-- For schedule substitutions, warnings don't block the action; hard errors do.
+- For schedule substitutions, warnings don't block the action; hard errors do. The exception is `NON_BLOCKING_EDIT_CODES` in `schedule_editor/problems.py`: errors no single edit can avoid. `group_day_minimum_not_met` is there because the daily minimum is 2 pairs, so the first lesson of any day is always below it — enforcing it on one mutation made the state unreachable. Such codes are returned in the mutation's `warnings` and still listed by the linter.
 - Role model: operator can edit schedule, rooms, teachers, groups; admin can additionally manage users.
 - Schedule JSON import (`POST /imports/schedule`, `routers/imports.py`) requires an operator/admin bearer token (`require_editor_actor`); it is not an open endpoint.
 
