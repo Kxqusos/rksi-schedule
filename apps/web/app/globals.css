@@ -681,11 +681,16 @@ button {
   align-content: start;
 }
 
-.import-page {
-  width: min(1120px, 100%);
+/* Every section renders exactly one wrapper in here, so the page frame is
+   defined once instead of being repeated per section. It used to be nine
+   near-copies with four different widths and an inconsistent set of
+   breakpoints, and a section that forgot to add itself (groups) got no frame
+   at all — its rows sat directly on the heading. */
+.workspace--import > * {
+  width: min(1280px, 100%);
   display: grid;
-  gap: 18px;
   align-content: start;
+  gap: 18px;
 }
 
 .import-head {
@@ -912,13 +917,6 @@ button {
   color: var(--text);
   font-size: 13px;
   font-weight: 700;
-}
-
-.schedule-page {
-  width: min(1320px, 100%);
-  display: grid;
-  align-content: start;
-  gap: 16px;
 }
 
 .schedule-sticky {
@@ -1317,13 +1315,6 @@ button {
   cursor: default;
 }
 
-.users-page {
-  width: min(1280px, 100%);
-  display: grid;
-  gap: 18px;
-  align-content: start;
-}
-
 .users-grid {
   display: grid;
   grid-template-columns: minmax(280px, 340px) minmax(360px, 1fr) minmax(260px, 320px);
@@ -1564,27 +1555,6 @@ button {
   text-align: center;
   font-size: 13px;
   line-height: 1.4;
-}
-
-.rooms-page {
-  width: min(1280px, 100%);
-  display: grid;
-  align-content: start;
-  gap: 18px;
-}
-
-.teachers-page {
-  width: min(1280px, 100%);
-  display: grid;
-  align-content: start;
-  gap: 18px;
-}
-
-.time-profiles-page {
-  width: min(1280px, 100%);
-  display: grid;
-  align-content: start;
-  gap: 18px;
 }
 
 .rooms-grid {
@@ -1975,13 +1945,6 @@ button {
   overflow-wrap: anywhere;
 }
 
-.problems-page {
-  width: min(1280px, 100%);
-  display: grid;
-  align-content: start;
-  gap: 18px;
-}
-
 .problems-toolbar {
   display: flex;
   align-items: center;
@@ -2117,17 +2080,10 @@ button {
   line-height: 1;
 }
 
-.audit-page {
-  width: min(1280px, 100%);
-  display: grid;
-  align-content: start;
-  gap: 18px;
-}
-
 .audit-toolbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
+  align-items: flex-end;
   gap: 12px;
 }
 
@@ -2226,23 +2182,7 @@ button {
     min-height: 44px;
   }
 
-  .import-page {
-    width: min(1360px, 100%);
-  }
-
-  .users-page {
-    width: min(1360px, 100%);
-  }
-
-  .rooms-page {
-    width: min(1360px, 100%);
-  }
-
-  .teachers-page {
-    width: min(1360px, 100%);
-  }
-
-  .problems-page {
+  .workspace--import > * {
     width: min(1360px, 100%);
   }
 
@@ -2256,27 +2196,7 @@ button {
     --sidebar-width: 252px;
   }
 
-  .import-page {
-    width: min(980px, 100%);
-  }
-
-  .users-page {
-    width: min(980px, 100%);
-  }
-
-  .schedule-page {
-    width: min(980px, 100%);
-  }
-
-  .rooms-page {
-    width: min(980px, 100%);
-  }
-
-  .teachers-page {
-    width: min(980px, 100%);
-  }
-
-  .problems-page {
+  .workspace--import > * {
     width: min(980px, 100%);
   }
 
@@ -2511,7 +2431,7 @@ button {
     font-size: 20px;
   }
 
-  .import-page {
+  .workspace--import > * {
     gap: 14px;
   }
 
@@ -2537,10 +2457,6 @@ button {
     width: 100%;
   }
 
-  .users-page {
-    gap: 14px;
-  }
-
   .users-panel {
     padding: 12px;
   }
@@ -2561,14 +2477,6 @@ button {
     justify-self: start;
   }
 
-  .rooms-page {
-    gap: 14px;
-  }
-
-  .teachers-page {
-    gap: 14px;
-  }
-
   .rooms-row {
     grid-template-columns: 1fr;
   }
@@ -2585,10 +2493,6 @@ button {
   .teachers-row-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
-  }
-
-  .problems-page {
-    gap: 14px;
   }
 
   .problems-toolbar,
