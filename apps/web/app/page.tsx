@@ -14,6 +14,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import AuditPage from "./audit-page";
 
 const primaryNav = [
   { label: "Импорт JSON", icon: FileJson },
@@ -128,6 +129,7 @@ export default function Home() {
     activeSection === "Преподаватели" ||
     activeSection === "Профили времени" ||
     activeSection === "Импорт JSON" ||
+    activeSection === "История изменений" ||
     activeSection === "Пользователи и роли";
 
   return (
@@ -193,6 +195,8 @@ export default function Home() {
           <TimeProfilesPage accessToken={session.accessToken} />
         ) : activeSection === "Импорт JSON" ? (
           <ImportPage accessToken={session.accessToken} />
+        ) : activeSection === "История изменений" ? (
+          <AuditPage accessToken={session.accessToken} />
         ) : activeSection === "Пользователи и роли" ? (
           <UsersPage currentUser={session.user} accessToken={session.accessToken} />
         ) : (
