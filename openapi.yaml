@@ -3,6 +3,82 @@ info:
   title: Schedule RKSI API
   version: 0.1.0
 paths:
+  "/audit":
+    get:
+      tags:
+      - audit
+      summary: Get Audit Entries
+      operationId: get_audit_entries_audit_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Q
+      - name: entity_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: array
+            items:
+              type: string
+          - type: 'null'
+          title: Entity Type
+      - name: date_from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date From
+      - name: date_to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date To
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 100
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AuditPageResponse"
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
   "/auth/login":
     post:
       tags:
@@ -1085,6 +1161,71 @@ paths:
                 title: Response Health Health Get
 components:
   schemas:
+    AuditEntryResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        actor_name:
+          type: string
+          title: Actor Name
+        actor_role:
+          type: string
+          title: Actor Role
+        actor_role_label:
+          type: string
+          title: Actor Role Label
+        entity_type:
+          type: string
+          title: Entity Type
+        entity_label:
+          type: string
+          title: Entity Label
+        action:
+          type: string
+          title: Action
+        summary:
+          type: string
+          title: Summary
+      type: object
+      required:
+      - id
+      - created_at
+      - actor_name
+      - actor_role
+      - actor_role_label
+      - entity_type
+      - entity_label
+      - action
+      - summary
+      title: AuditEntryResponse
+    AuditPageResponse:
+      properties:
+        items:
+          items:
+            "$ref": "#/components/schemas/AuditEntryResponse"
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+        limit:
+          type: integer
+          title: Limit
+        offset:
+          type: integer
+          title: Offset
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      title: AuditPageResponse
     DayTimeProfileCreateRequest:
       properties:
         name:

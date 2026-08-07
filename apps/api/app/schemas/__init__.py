@@ -1,3 +1,4 @@
+from .audit import AuditEntryResponse, AuditPageResponse
 from .schedule_edit import (
     LessonCreateRequest,
     LessonResponse,
@@ -12,6 +13,8 @@ from .teacher import TeacherAbsenceCreateRequest, TeacherAbsenceResponse, Teache
 from .user import LoginRequest, LoginResponse, UserCreateRequest, UserResponse, UserRole
 
 __all__ = [
+    "AuditEntryResponse",
+    "AuditPageResponse",
     "LessonCreateRequest",
     "LessonResponse",
     "LessonUpdateRequest",

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.cache import init_cache
 from app.core.config import get_cors_origins, get_database_url, get_redis_url
 from app.db.engine import dispose_engine, init_engine
+from app.routers.audit import router as audit_router
 from app.routers.auth import router as auth_router
 from app.routers.groups import router as groups_router
 from app.routers.imports import router as imports_router
@@ -35,6 +36,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(audit_router)
 app.include_router(auth_router)
 app.include_router(groups_router)
 app.include_router(imports_router)
