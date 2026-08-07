@@ -17,7 +17,7 @@ docker compose up --build   # first run
 docker compose up           # subsequent runs
 ```
 
-- `postgres`: `localhost:55432`, db `schedule_rks`, user `schedule_rks`
+- `postgres`: `localhost:5432`, db `schedule_rks`, user `schedule_rks`
 - `api`: FastAPI at `http://127.0.0.1:8001` (runs `alembic upgrade head` then `uvicorn --reload`)
 - `web`: Next.js at `http://127.0.0.1:3003`
 

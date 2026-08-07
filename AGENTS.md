@@ -20,7 +20,7 @@ MVP сервиса расписания занятий колледжа. Ест�
 
 Сервисы:
 
-- `postgres`: `localhost:55432`, база `schedule_rks`, пользователь `schedule_rks`.
+- `postgres`: `localhost:5432`, база `schedule_rks`, пользователь `schedule_rks`.
 - `api`: FastAPI на `http://127.0.0.1:8001`.
 - `web`: Next.js на `http://127.0.0.1:3003`.
 
