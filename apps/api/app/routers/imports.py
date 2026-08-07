@@ -4,11 +4,13 @@ import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.orm import Session
 
 from app.core.cache import get_cache
+from app.db.session import get_session
 from app.schemas.import_schedule import ImportScheduleResponse
 from app.services.auth.permissions import Actor, require_editor_actor
-from app.services.import_schedule import import_schedule_from_payload
+from app.services.import_schedule import audit_import, import_schedule_from_payload
 from app.services.import_schedule.mappers import import_result_to_response
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -18,12 +20,15 @@ router = APIRouter(prefix="/imports", tags=["imports"])
 async def import_schedule(
     request: Request,
     actor: Annotated[Actor, Depends(require_editor_actor)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> dict:
     payload = await _read_import_payload(request)
     result = import_schedule_from_payload(
         payload,
         source_path="api:/imports/schedule",
     )
+    with session.begin():
+        audit_import(session, result=result, actor=actor)
     get_cache().invalidate_all()
     return import_result_to_response(result).model_dump(mode="json")
 

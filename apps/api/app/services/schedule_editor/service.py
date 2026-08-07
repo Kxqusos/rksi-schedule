@@ -289,7 +289,13 @@ def update_lesson(
             dates={original_date, lesson.lesson_date},
             week_numbers={original_week_number, lesson.week_number},
         )
-    _audit(session, action="update", lesson=lesson, actor=actor, payload=audit_payload)
+    _audit(
+        session,
+        action="update",
+        lesson=lesson,
+        actor=actor,
+        payload={**audit_payload, "lesson": _lesson_identity(session, lesson)},
+    )
     lesson_view = _lesson_view(session, lesson)
     cache_keys = _merge_cache_keys(
         _lesson_cache_keys(
@@ -315,7 +321,13 @@ def delete_lesson(session, lesson_id: int, actor: Actor) -> list[CacheKey]:
     cache_keys = _lesson_cache_keys(
         group_id=group_id, teacher_id=lesson.teacher_id, room_id=lesson.room_id, week_number=week_number
     )
-    _audit(session, action="delete", lesson=lesson, actor=actor, payload={"source_lesson_id": lesson.source_lesson_id})
+    _audit(
+        session,
+        action="delete",
+        lesson=lesson,
+        actor=actor,
+        payload={"source_lesson_id": lesson.source_lesson_id, "lesson": _lesson_identity(session, lesson)},
+    )
     session.delete(lesson)
     session.flush()
     _ensure_group_rules(session, group_ids={group_id}, dates={lesson_date}, week_numbers={week_number})
@@ -606,6 +618,23 @@ def _get_or_create_room(session, room_name: str | None) -> Room | None:
     session.add(room)
     session.flush()
     return room
+
+
+def _lesson_identity(session, lesson: Lesson) -> dict:
+    """Snapshot of what the lesson is, stored inside the audit payload.
+
+    A PATCH payload carries only the changed fields (and may be empty), and a
+    deleted lesson can't be looked up afterwards — without this snapshot the
+    change history has nothing to name the lesson by.
+    """
+    group = repository.get_group_by_id(session, lesson.group_id)
+    subject = repository.get_subject_by_id(session, lesson.subject_id)
+    return {
+        "group_name": group.source_name if group else None,
+        "subject": subject.source_name if subject else None,
+        "date": lesson.lesson_date.isoformat(),
+        "time_slot": lesson.time_slot,
+    }
 
 
 def _lesson_view(session, lesson: Lesson) -> LessonView:

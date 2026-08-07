@@ -69,7 +69,11 @@ def set_homeroom_teacher(session, group_id: int, teacher_id: int | None, actor: 
         action="set_homeroom_teacher",
         group=group,
         actor=actor,
-        payload={"teacher_id": teacher.id if teacher else None, "teacher_name": teacher.source_name if teacher else None},
+        payload={
+            "group_name": group.source_name,
+            "teacher_id": teacher.id if teacher else None,
+            "teacher_name": teacher.source_name if teacher else None,
+        },
     )
     return group, lesson_count, teacher
 
@@ -92,10 +96,17 @@ def delete_group(session, group_id: int, actor: Actor) -> None:
     session.delete(group)
 
 
-def clear_homeroom_teacher(session, teacher_id: int) -> int:
+def clear_homeroom_teacher(session, teacher_id: int, *, teacher_name: str, actor: Actor) -> int:
     groups = repository.get_groups_by_homeroom_teacher(session, teacher_id)
     for group in groups:
         group.homeroom_teacher_id = None
+        _audit(
+            session,
+            action="clear_homeroom_teacher",
+            group=group,
+            actor=actor,
+            payload={"group_name": group.source_name, "teacher_name": teacher_name},
+        )
     return len(groups)
 
 

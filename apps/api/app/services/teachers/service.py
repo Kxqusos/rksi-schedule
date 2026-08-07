@@ -75,7 +75,9 @@ def delete_teacher(session, teacher_id: int, actor: Actor) -> None:
     absences = repository.get_absences_for_teacher(session, teacher_id)
     for absence in absences:
         session.delete(absence)
-    cleared_group_count = clear_homeroom_teacher(session, teacher.id)
+    cleared_group_count = clear_homeroom_teacher(
+        session, teacher.id, teacher_name=teacher.source_name, actor=actor
+    )
 
     _audit(
         session,
@@ -123,7 +125,7 @@ def create_teacher_absence(
         action="mark_absent",
         teacher=teacher,
         actor=actor,
-        payload=_absence_audit_payload(absence),
+        payload=_absence_audit_payload(teacher, absence),
     )
     return absence
 
@@ -141,7 +143,7 @@ def delete_teacher_absence(session, teacher_id: int, absence_id: int, actor: Act
         action="clear_absence",
         teacher=teacher,
         actor=actor,
-        payload=_absence_audit_payload(absence),
+        payload=_absence_audit_payload(teacher, absence),
     )
     session.delete(absence)
 
@@ -164,9 +166,10 @@ def absence_matches_slot(absence: TeacherAbsence, *, lesson_date: date, time_slo
     )
 
 
-def _absence_audit_payload(absence: TeacherAbsence) -> dict:
+def _absence_audit_payload(teacher: Teacher, absence: TeacherAbsence) -> dict:
     return {
         "id": absence.id,
+        "teacher_name": teacher.source_name,
         "date": absence.absence_date.isoformat(),
         "all_day": absence.all_day,
         "time_slot_start": absence.time_slot_start,

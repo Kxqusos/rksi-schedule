@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from app.db.engine import get_session_factory
-from app.models import Group, Lesson, Room, ScheduleImport, Subject, Teacher
+from app.models import AuditLog, Group, Lesson, Room, ScheduleImport, Subject, Teacher
+from app.services.auth.permissions import Actor
 from app.services.import_schedule import repository
 
 
@@ -31,6 +32,8 @@ class ImportResult:
     group_count: int
     lesson_count: int
     empty_day_count: int
+    import_id: int
+    source_path: str
 
 
 def import_schedule_from_json(source: Path) -> ImportResult:
@@ -100,12 +103,39 @@ def import_schedule_from_payload(payload: Any, source_path: str = "<payload>") -
             import_record.group_count = group_count
             import_record.lesson_count = lesson_count
             import_record.empty_day_count = empty_day_count
+            import_id = import_record.id
 
     return ImportResult(
         timetable_count=timetable_count,
         group_count=group_count,
         lesson_count=lesson_count,
         empty_day_count=empty_day_count,
+        import_id=import_id,
+        source_path=source_path,
+    )
+
+
+def audit_import(session, *, result: ImportResult, actor: Actor) -> None:
+    """Record who ran an import.
+
+    Kept separate from import_schedule_from_payload because that function owns
+    its own session and commits independently of the caller's.
+    """
+    session.add(
+        AuditLog(
+            entity_type="schedule_import",
+            entity_id=result.import_id,
+            action="import",
+            actor_role=actor.role,
+            actor_name=actor.name,
+            payload={
+                "source_path": result.source_path,
+                "timetable_count": result.timetable_count,
+                "group_count": result.group_count,
+                "lesson_count": result.lesson_count,
+                "empty_day_count": result.empty_day_count,
+            },
+        )
     )
 
 
