@@ -634,51 +634,9 @@ button {
   min-height: 100vh;
   background: var(--bg);
   display: grid;
-  place-items: center;
-  padding: 24px;
-}
-
-.placeholder {
-  width: min(520px, 100%);
-  min-height: 220px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 8px;
-  padding: 28px;
-  text-align: center;
-}
-
-.placeholder__eyebrow {
-  color: var(--muted-soft);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.placeholder h1 {
-  margin: 0;
-  color: var(--text);
-  font-size: 24px;
-  line-height: 1.18;
-  letter-spacing: 0;
-}
-
-.placeholder p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.workspace--import {
   place-items: stretch;
   align-content: start;
+  padding: 24px;
 }
 
 /* Every section renders exactly one wrapper in here, so the page frame is
@@ -686,7 +644,7 @@ button {
    near-copies with four different widths and an inconsistent set of
    breakpoints, and a section that forgot to add itself (groups) got no frame
    at all — its rows sat directly on the heading. */
-.workspace--import > * {
+.workspace > * {
   width: min(1280px, 100%);
   display: grid;
   align-content: start;
@@ -2182,7 +2140,7 @@ button {
     min-height: 44px;
   }
 
-  .workspace--import > * {
+  .workspace > * {
     width: min(1360px, 100%);
   }
 
@@ -2196,7 +2154,7 @@ button {
     --sidebar-width: 252px;
   }
 
-  .workspace--import > * {
+  .workspace > * {
     width: min(980px, 100%);
   }
 
@@ -2422,16 +2380,7 @@ button {
     padding: 16px;
   }
 
-  .placeholder {
-    min-height: 180px;
-    padding: 20px;
-  }
-
-  .placeholder h1 {
-    font-size: 20px;
-  }
-
-  .workspace--import > * {
+  .workspace > * {
     gap: 14px;
   }
 

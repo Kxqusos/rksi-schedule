@@ -121,17 +121,6 @@ export default function Home() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
-  const isWorkspacePage =
-    activeSection === "Замены занятий" ||
-    activeSection === "Проблемы" ||
-    activeSection === "Группы" ||
-    activeSection === "Кабинеты" ||
-    activeSection === "Преподаватели" ||
-    activeSection === "Профили времени" ||
-    activeSection === "Импорт JSON" ||
-    activeSection === "История изменений" ||
-    activeSection === "Пользователи и роли";
-
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="Основная навигация">
@@ -177,10 +166,7 @@ export default function Home() {
         </nav>
       </aside>
 
-      <section
-        className={isWorkspacePage ? "workspace workspace--import" : "workspace"}
-        aria-label="Рабочая область"
-      >
+      <section className="workspace" aria-label="Рабочая область">
         {activeSection === "Замены занятий" ? (
           <SchedulePage accessToken={session.accessToken} />
         ) : activeSection === "Проблемы" ? (
@@ -197,14 +183,8 @@ export default function Home() {
           <ImportPage accessToken={session.accessToken} />
         ) : activeSection === "История изменений" ? (
           <AuditPage accessToken={session.accessToken} />
-        ) : activeSection === "Пользователи и роли" ? (
-          <UsersPage currentUser={session.user} accessToken={session.accessToken} />
         ) : (
-          <div className="placeholder">
-            <div className="placeholder__eyebrow">Раздел</div>
-            <h1>{activeSection}</h1>
-            <p>Раздел в разработке.</p>
-          </div>
+          <UsersPage currentUser={session.user} accessToken={session.accessToken} />
         )}
       </section>
     </main>
