@@ -773,6 +773,33 @@ def test_daily_minimum_stops_warning_once_the_day_is_filled(tmp_path, monkeypatc
         assert not any(warning["code"] == "group_day_minimum_not_met" for warning in response.json()["warnings"])
 
 
+def test_gap_left_by_a_class_hour_is_not_a_window(tmp_path, monkeypatch):
+    """A class hour is slotted in ahead of the pairs that follow it.
+
+    The gap it leaves behind is how the day is meant to look. A gap before the
+    class hour, or one with no class hour involved, is still a window.
+    """
+    database_url = f"sqlite:///{tmp_path / 'class_hour_window.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    with TestClient(app) as client:
+        # Class hour at 4, next pair at 6: slot 5 is empty by design.
+        _seed_group_day(database_url, group_name="CH-AFTER", slots=(1, 2, 3, 6), class_hour_slot=4)
+        # Class hour at 4 with nothing at 2 and 3: that gap is still a window.
+        _seed_group_day(database_url, group_name="CH-BEFORE", slots=(1,), class_hour_slot=4)
+        _seed_group_day(database_url, group_name="NO-CH", slots=(1, 3))
+
+        problems = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"}).json()
+
+        window = next(problem for problem in problems if problem["code"] == "group_day_window")
+        flagged = window["group_name"]
+        assert "CH-AFTER" not in flagged
+        assert "CH-BEFORE" in flagged
+        assert "NO-CH" in flagged
+
+
 def test_double_booking_problems_collapse_into_one_notification_each(tmp_path, monkeypatch):
     """Aggregation is per problem class, not only for the group-level ones.
 
@@ -1247,6 +1274,51 @@ def _seed_additional_lesson(database_url: str, *, group_name: str) -> None:
                     lesson_type="",
                 )
             )
+
+
+def _seed_group_day(
+    database_url: str, *, group_name: str, slots: tuple[int, ...], class_hour_slot: int | None = None
+) -> None:
+    from conftest import bind_engine
+
+    session_factory = bind_engine(database_url)
+    with session_factory() as session:
+        with session.begin():
+            group = Group(source_name=group_name, course=0, faculty="")
+            subject = Subject(source_name=f"{group_name} subject")
+            teacher = Teacher(source_teacher_id=f"{group_name} teacher", source_name=f"{group_name} teacher", post="")
+            class_hour_subject = session.scalar(select(Subject).where(Subject.source_name == "Классный час"))
+            if class_hour_subject is None:
+                class_hour_subject = Subject(source_name="Классный час")
+                session.add(class_hour_subject)
+            session.add_all([group, subject, teacher])
+            session.flush()
+
+            planned = [(slot, subject) for slot in slots]
+            if class_hour_slot is not None:
+                planned.append((class_hour_slot, class_hour_subject))
+            for slot, slot_subject in planned:
+                room = Room(source_name=f"{group_name}-{slot}")
+                session.add(room)
+                session.flush()
+                session.add(
+                    Lesson(
+                        source_lesson_id=f"{group_name}:{slot}",
+                        schedule_import_id=1,
+                        group_id=group.id,
+                        subject_id=slot_subject.id,
+                        teacher_id=teacher.id,
+                        room_id=room.id,
+                        lesson_date=date(2026, 2, 23),
+                        start_time=time(8 + slot, 0),
+                        end_time=time(8 + slot, 30),
+                        weekday=1,
+                        week_number=7,
+                        time_slot=slot,
+                        subgroup=0,
+                        lesson_type="",
+                    )
+                )
 
 
 def _seed_group_with_class_hour_over_raw_limit(database_url: str) -> None:

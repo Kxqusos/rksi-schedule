@@ -327,7 +327,15 @@ def _group_day_problems(
 
     slots = sorted({lesson.time_slot for lesson in lessons})
     if slots:
-        missing_slots = [slot for slot in range(slots[0], slots[-1] + 1) if slot not in slots]
+        class_hour_slots = {
+            lesson.time_slot for lesson in lessons if _is_class_hour_lesson(lesson, subject_lookup)
+        }
+        forgiven_slots = _slots_after_class_hour(slots, class_hour_slots)
+        missing_slots = [
+            slot
+            for slot in range(slots[0], slots[-1] + 1)
+            if slot not in slots and slot not in forgiven_slots
+        ]
         if missing_slots:
             problems.append(
                 ScheduleProblem(
@@ -341,6 +349,22 @@ def _group_day_problems(
                 )
             )
     return problems
+
+
+def _slots_after_class_hour(slots: list[int], class_hour_slots: set[int]) -> set[int]:
+    """Empty slots sitting between a class hour and the next pair of that day.
+
+    A class hour is slotted in ahead of the pairs that follow it, so the gap it
+    leaves behind is how the day is meant to look, not a window someone has to
+    close. A gap before the class hour is still a window.
+    """
+    forgiven: set[int] = set()
+    for class_hour_slot in class_hour_slots:
+        for slot in range(class_hour_slot + 1, slots[-1] + 1):
+            if slot in slots:
+                break
+            forgiven.add(slot)
+    return forgiven
 
 
 def _daily_pair_count(lessons: list[Lesson]) -> int:
