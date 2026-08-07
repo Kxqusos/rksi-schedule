@@ -1284,6 +1284,14 @@ button {
   line-height: 1.35;
 }
 
+.schedule-edit__error {
+  color: rgba(238, 138, 138, 0.95);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .schedule-edit__actions {
   display: flex;
   justify-content: flex-end;

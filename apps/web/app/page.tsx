@@ -2590,6 +2590,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
   const [editTeacherName, setEditTeacherName] = useState("");
   const [editRoomName, setEditRoomName] = useState("");
   const [mutationWarnings, setMutationWarnings] = useState<ScheduleProblem[]>([]);
+  const [mutationError, setMutationError] = useState("");
   const [status, setStatus] = useState("Выберите дату и номер занятия.");
   const [busy, setBusy] = useState(false);
   const [savingLesson, setSavingLesson] = useState(false);
@@ -2601,6 +2602,7 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
       setBusy(true);
       setEditorState(null);
       setMutationWarnings([]);
+      setMutationError("");
       try {
         const response = await fetch(
           `${apiBaseUrl}/schedule/lessons?date=${encodeURIComponent(selectedDate)}&time_slot=${selectedSlot}`,
@@ -2779,9 +2781,10 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
               })),
             });
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await readErrorDetail(response));
       }
       const updated = (await response.json()) as LessonMutationResponse;
+      setMutationError("");
       setEditorState({
         mode: "update",
         lesson: updated,
@@ -2802,8 +2805,9 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
             ? "Занятие обновлено."
             : "Занятие создано.",
       );
-    } catch {
+    } catch (error) {
       setMutationWarnings([]);
+      setMutationError(error instanceof Error ? error.message : String(error));
       setStatus(editorState.mode === "update" ? "Не удалось сохранить занятие." : "Не удалось создать занятие.");
     } finally {
       setSavingLesson(false);
@@ -2961,6 +2965,14 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
                 </label>
               </div>
             </section>
+            {mutationError ? (
+              <section className="schedule-edit__lint" aria-label="Ошибка сохранения" role="alert">
+                <div className="schedule-edit__section-head">
+                  <span>Ошибка · debug</span>
+                </div>
+                <div className="schedule-edit__error">{mutationError}</div>
+              </section>
+            ) : null}
             {mutationWarnings.length > 0 ? (
               <section className="schedule-edit__lint" aria-label="Предупреждения">
                 <div className="schedule-edit__section-head">
@@ -3323,6 +3335,24 @@ function buildAuthHeaders(accessToken: string): HeadersInit {
   return {
     Authorization: `Bearer ${accessToken}`,
   };
+}
+
+// Debug passthrough: the API's raw `detail` string, shown as-is until the
+// blocking rules settle down and each code gets its own Russian wording.
+async function readErrorDetail(response: Response): Promise<string> {
+  const raw = await response.text();
+  try {
+    const parsed = JSON.parse(raw) as { detail?: unknown };
+    if (typeof parsed.detail === "string") {
+      return parsed.detail;
+    }
+    if (parsed.detail !== undefined) {
+      return JSON.stringify(parsed.detail);
+    }
+  } catch {
+    // Not JSON — fall through to the raw body.
+  }
+  return raw;
 }
 
 function formatDateTime(value: string): string {
