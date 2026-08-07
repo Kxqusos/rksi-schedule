@@ -73,6 +73,7 @@ class ScheduleProblemResponse(BaseModel):
     teacher_name: str | None = None
     room_name: str | None = None
     lesson_ids: list[int] = Field(default_factory=list)
+    count: int = 1
 
 
 class LessonMutationResponse(LessonResponse):

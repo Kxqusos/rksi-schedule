@@ -1968,6 +1968,10 @@ components:
             type: integer
           type: array
           title: Lesson Ids
+        count:
+          type: integer
+          title: Count
+          default: 1
       type: object
       required:
       - severity

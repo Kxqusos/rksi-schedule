@@ -773,6 +773,32 @@ def test_daily_minimum_stops_warning_once_the_day_is_filled(tmp_path, monkeypatc
         assert not any(warning["code"] == "group_day_minimum_not_met" for warning in response.json()["warnings"])
 
 
+def test_double_booking_problems_collapse_into_one_notification_each(tmp_path, monkeypatch):
+    """Aggregation is per problem class, not only for the group-level ones.
+
+    The imported schedule double-books teachers and rooms dozens of times, and
+    each occurrence used to be its own card.
+    """
+    database_url = f"sqlite:///{tmp_path / 'double_booked_aggregate.db'}"
+    migrate_database(database_url)
+    _seed_import(database_url)
+    operator_token = _bootstrap_and_get_operator_token(database_url, monkeypatch)
+    app.state.database_url = database_url
+    with TestClient(app) as client:
+        problems = client.get("/schedule/problems", headers={"Authorization": f"Bearer {operator_token}"}).json()
+
+        for code, header in (
+            ("teacher_double_booked", "Перечисленные преподаватели стоят у двух групп в одну пару:"),
+            ("room_double_booked", "Перечисленные кабинеты стоят у двух групп в одну пару:"),
+        ):
+            rows = [problem for problem in problems if problem["code"] == code]
+            assert len(rows) == 1, f"{code}: expected one notification, got {len(rows)}"
+            assert rows[0]["count"] > 1
+            assert rows[0]["message"].startswith(header)
+            # One line per entity, plus the header.
+            assert len(rows[0]["message"].splitlines()) == rows[0]["count"] + 1
+
+
 def test_schedule_problems_linter_lists_warnings(tmp_path, monkeypatch):
     database_url = f"sqlite:///{tmp_path / 'problems.db'}"
     migrate_database(database_url)
@@ -813,7 +839,9 @@ def test_schedule_problems_linter_lists_absent_teacher_lessons(tmp_path, monkeyp
         absent_problem = next(problem for problem in problems if problem["code"] == "absent_teacher_scheduled")
         assert absent_problem["severity"] == "error"
         assert absent_problem["teacher_name"] == "ABSENT-LINT teacher"
-        assert "отсутствует" in absent_problem["message"]
+        # Both seeded lessons fall in the absence, so they arrive as one notification.
+        assert absent_problem["count"] == 2
+        assert absent_problem["message"].startswith("Перечисленные преподаватели отсутствуют")
         assert "Отпуск" in absent_problem["message"]
 
 
@@ -841,7 +869,7 @@ def test_schedule_problems_linter_lists_excluded_room_lessons(tmp_path, monkeypa
         excluded_problem = next(problem for problem in problems if problem["code"] == "excluded_room_scheduled")
         assert excluded_problem["severity"] == "error"
         assert excluded_problem["room_name"] == occupied_room["name"]
-        assert "исключён" in excluded_problem["message"]
+        assert excluded_problem["message"].startswith("Перечисленные кабинеты исключены из расписания")
         assert "Ремонт" in excluded_problem["message"]
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date as Date
 from typing import TYPE_CHECKING
 
-from app.models import Lesson, Room, TeacherAbsence
+from app.models import Lesson, TeacherAbsence
 from app.schemas.schedule_edit import (
     LessonResponse,
     PublicEntityRef,
@@ -159,4 +159,5 @@ def schedule_problem_to_response(problem: ScheduleProblem) -> ScheduleProblemRes
         teacher_name=problem.teacher_name,
         room_name=problem.room_name,
         lesson_ids=list(problem.lesson_ids),
+        count=problem.count,
     )

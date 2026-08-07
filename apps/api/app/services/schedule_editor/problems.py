@@ -29,6 +29,8 @@ class ScheduleProblem:
     teacher_name: str | None = None
     room_name: str | None = None
     lesson_ids: list[int] = field(default_factory=list)
+    # How many problems this one stands for once its class is aggregated.
+    count: int = 1
 
 
 MAX_GROUP_WEEK_LESSONS = 18
@@ -39,12 +41,19 @@ MIN_GROUP_DAY_LESSONS = 2
 # minimum: the second one would satisfy the rule, but it can never be reached
 # because the first save would be rejected. The linter still lists them.
 NON_BLOCKING_EDIT_CODES = {"group_day_minimum_not_met"}
-AGGREGATED_GROUP_PROBLEM_CODES = {
-    "group_week_limit_exceeded",
-    "group_day_limit_exceeded",
-    "group_day_minimum_not_met",
-    "group_day_window",
-    "group_slot_multiple_teachers",
+# One notification per problem class, one line per entity inside it. The entity
+# differs by class, so each code declares which field names its rows: a group
+# limit is listed by group, a double booking by the teacher or room it is about.
+PROBLEM_SUBJECT_FIELDS = {
+    "group_week_limit_exceeded": "group_name",
+    "group_day_limit_exceeded": "group_name",
+    "group_day_minimum_not_met": "group_name",
+    "group_day_window": "group_name",
+    "group_slot_multiple_teachers": "group_name",
+    "absent_teacher_scheduled": "teacher_name",
+    "teacher_double_booked": "teacher_name",
+    "excluded_room_scheduled": "room_name",
+    "room_double_booked": "room_name",
 }
 
 
@@ -84,7 +93,7 @@ def list_schedule_problems(session) -> list[ScheduleProblem]:
     problems.extend(_double_booked_room_warnings(session))
     problems.extend(_absent_teacher_errors(session))
     problems.extend(_excluded_room_errors(session))
-    problems = _aggregate_group_problems(problems)
+    problems = _aggregate_problems(problems)
     return sorted(
         problems,
         key=lambda problem: (
@@ -97,11 +106,11 @@ def list_schedule_problems(session) -> list[ScheduleProblem]:
     )
 
 
-def _aggregate_group_problems(problems: list[ScheduleProblem]) -> list[ScheduleProblem]:
+def _aggregate_problems(problems: list[ScheduleProblem]) -> list[ScheduleProblem]:
     grouped: dict[str, list[ScheduleProblem]] = {}
     result: list[ScheduleProblem] = []
     for problem in problems:
-        if problem.code in AGGREGATED_GROUP_PROBLEM_CODES and problem.group_name:
+        if _problem_subject(problem):
             grouped.setdefault(problem.code, []).append(problem)
         else:
             result.append(problem)
@@ -110,33 +119,48 @@ def _aggregate_group_problems(problems: list[ScheduleProblem]) -> list[ScheduleP
         if len(code_problems) == 1:
             result.append(code_problems[0])
             continue
-        group_names = _unique_values(problem.group_name for problem in code_problems)
+        subjects = _unique_values(_problem_subject(problem) for problem in code_problems)
         lesson_ids: list[int] = []
         for problem in code_problems:
             lesson_ids.extend(problem.lesson_ids)
+        # Every field but the one naming the rows keeps its value only while the
+        # aggregated problems agree on it.
+        names = {
+            "group_name": _single_value(problem.group_name for problem in code_problems),
+            "teacher_name": _single_value(problem.teacher_name for problem in code_problems),
+            "room_name": _single_value(problem.room_name for problem in code_problems),
+        }
+        names[PROBLEM_SUBJECT_FIELDS[code]] = ", ".join(subjects)
         result.append(
             ScheduleProblem(
                 severity=code_problems[0].severity,
                 code=code,
-                message=_aggregated_group_problem_message(code_problems),
+                message=_aggregated_problem_message(code_problems),
                 date=_single_value(problem.date for problem in code_problems),
                 week_number=_single_value(problem.week_number for problem in code_problems),
                 time_slot=_single_value(problem.time_slot for problem in code_problems),
-                group_name=", ".join(group_names),
                 lesson_ids=list(dict.fromkeys(lesson_ids)),
+                count=len(code_problems),
+                **names,
             )
         )
     return result
 
 
-def _aggregated_group_problem_message(problems: list[ScheduleProblem]) -> str:
+def _problem_subject(problem: ScheduleProblem) -> str | None:
+    """The entity this problem is listed by inside its aggregated notification."""
+    field_name = PROBLEM_SUBJECT_FIELDS.get(problem.code)
+    return getattr(problem, field_name) if field_name else None
+
+
+def _aggregated_problem_message(problems: list[ScheduleProblem]) -> str:
     code = problems[0].code
-    header = _aggregated_group_problem_header(code)
-    lines = [_aggregated_group_problem_line(problem) for problem in problems]
+    header = _aggregated_problem_header(code)
+    lines = [_aggregated_problem_line(problem) for problem in problems]
     return "\n".join([header, *lines])
 
 
-def _aggregated_group_problem_header(code: str) -> str:
+def _aggregated_problem_header(code: str) -> str:
     headers = {
         "group_week_limit_exceeded": (
             f"У перечисленных групп превышен максимум "
@@ -149,17 +173,20 @@ def _aggregated_group_problem_header(code: str) -> str:
         "group_day_minimum_not_met": f"У перечисленных групп меньше {MIN_GROUP_DAY_LESSONS} пар в день:",
         "group_day_window": "У перечисленных групп есть окно в расписании:",
         "group_slot_multiple_teachers": "У перечисленных групп два преподавателя на одну пару:",
+        "absent_teacher_scheduled": "Перечисленные преподаватели отсутствуют, но стоят в расписании:",
+        "teacher_double_booked": "Перечисленные преподаватели стоят у двух групп в одну пару:",
+        "excluded_room_scheduled": "Перечисленные кабинеты исключены из расписания, но стоят в нём:",
+        "room_double_booked": "Перечисленные кабинеты стоят у двух групп в одну пару:",
     }
-    return headers.get(code, "У перечисленных групп есть проблема:")
+    return headers.get(code, "Перечисленные позиции требуют внимания:")
 
 
-def _aggregated_group_problem_line(problem: ScheduleProblem) -> str:
-    group_name = problem.group_name or "Без группы"
-    detail = _aggregated_group_problem_detail(problem)
-    return f"{group_name}: {detail}"
+def _aggregated_problem_line(problem: ScheduleProblem) -> str:
+    subject = _problem_subject(problem) or "Без названия"
+    return f"{subject}: {_aggregated_problem_detail(problem)}"
 
 
-def _aggregated_group_problem_detail(problem: ScheduleProblem) -> str:
+def _aggregated_problem_detail(problem: ScheduleProblem) -> str:
     if problem.code in {"group_week_limit_exceeded", "group_day_limit_exceeded"}:
         return problem.message.split(": ", 1)[1] if ": " in problem.message else problem.message
     if problem.code == "group_day_minimum_not_met":
@@ -168,6 +195,12 @@ def _aggregated_group_problem_detail(problem: ScheduleProblem) -> str:
         return _problem_location(problem).removesuffix(". ")
     if problem.code == "group_slot_multiple_teachers":
         return f"{_problem_location(problem)}два преподавателя."
+    if problem.code in {"teacher_double_booked", "room_double_booked"}:
+        return _problem_location(problem).removesuffix(". ")
+    if problem.code in {"absent_teacher_scheduled", "excluded_room_scheduled"}:
+        location = _problem_location(problem).removesuffix(". ")
+        reason = problem.message.split("Причина: ", 1)[1].rstrip(".") if "Причина: " in problem.message else ""
+        return f"{location}, причина: {reason}" if reason else location
     return problem.message
 
 

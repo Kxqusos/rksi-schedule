@@ -765,6 +765,8 @@ type ScheduleProblem = {
   teacher_name: string | null;
   room_name: string | null;
   lesson_ids: number[];
+  // How many problems the notification stands for; 1 unless its class was aggregated.
+  count: number;
 };
 
 type LessonMutationResponse = LessonRecord & {
@@ -825,8 +827,11 @@ function ProblemsPage({ accessToken }: { accessToken: string }) {
     void loadProblems();
   }, [accessToken]);
 
-  const errorCount = problems.filter((problem) => problem.severity === "error").length;
-  const warningCount = problems.filter((problem) => problem.severity === "warning").length;
+  // Count problems, not notifications: one card can stand for dozens.
+  const countBySeverity = (severity: ScheduleProblem["severity"]) =>
+    problems.reduce((total, problem) => (problem.severity === severity ? total + problem.count : total), 0);
+  const errorCount = countBySeverity("error");
+  const warningCount = countBySeverity("warning");
   const problemFilterOptions = useMemo(() => buildProblemFilterOptions(problems), [problems]);
   const filteredProblems = useMemo(
     () => (activeFilter === "all" ? problems : problems.filter((problem) => problem.code === activeFilter)),
@@ -3368,7 +3373,7 @@ function formatAbsence(absence: TeacherAbsenceRecord) {
 function buildProblemFilterOptions(problems: ScheduleProblem[]) {
   const counts = new Map<string, number>();
   for (const problem of problems) {
-    counts.set(problem.code, (counts.get(problem.code) ?? 0) + 1);
+    counts.set(problem.code, (counts.get(problem.code) ?? 0) + problem.count);
   }
 
   const knownOptions = defaultProblemFilterCodes.map((code) => ({
@@ -3388,7 +3393,7 @@ function buildProblemFilterOptions(problems: ScheduleProblem[]) {
   return [
     {
       code: "all",
-      count: problems.length,
+      count: problems.reduce((total, problem) => total + problem.count, 0),
       label: problemFilterLabels.all,
     },
     ...knownOptions,
