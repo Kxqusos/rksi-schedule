@@ -507,10 +507,6 @@ function UsersPage({ accessToken, currentUser }: { accessToken: string; currentU
           <h1>Пользователи и роли</h1>
           <p>Создание пользователей доступно только роли admin.</p>
         </div>
-        <div className="import-chip-row">
-          <div className="import-chip">admin</div>
-          <div className="import-chip">operator</div>
-        </div>
       </div>
 
       <div className="users-grid">
@@ -827,11 +823,6 @@ function ProblemsPage({ accessToken }: { accessToken: string }) {
     void loadProblems();
   }, [accessToken]);
 
-  // Count problems, not notifications: one card can stand for dozens.
-  const countBySeverity = (severity: ScheduleProblem["severity"]) =>
-    problems.reduce((total, problem) => (problem.severity === severity ? total + problem.count : total), 0);
-  const errorCount = countBySeverity("error");
-  const warningCount = countBySeverity("warning");
   const problemFilterOptions = useMemo(() => buildProblemFilterOptions(problems), [problems]);
   const filteredProblems = useMemo(
     () => (activeFilter === "all" ? problems : problems.filter((problem) => problem.code === activeFilter)),
@@ -852,10 +843,6 @@ function ProblemsPage({ accessToken }: { accessToken: string }) {
       <div className="import-head">
         <div>
           <h1>Проблемы</h1>
-        </div>
-        <div className="import-chip-row">
-          <div className="import-chip">{errorCount} ошибок</div>
-          <div className="import-chip">{warningCount} предупреждений</div>
         </div>
       </div>
 
@@ -1058,10 +1045,6 @@ function GroupsPage({ accessToken }: { accessToken: string }) {
       <div className="import-head">
         <div>
           <h1>Группы</h1>
-        </div>
-        <div className="import-chip-row">
-          <div className="import-chip">{groups.length} всего</div>
-          <div className="import-chip">Классные руководители</div>
         </div>
       </div>
 
@@ -1339,10 +1322,6 @@ function RoomsPage({ accessToken }: { accessToken: string }) {
       <div className="import-head">
         <div>
           <h1>Кабинеты</h1>
-        </div>
-        <div className="import-chip-row">
-          <div className="import-chip">{rooms.length} всего</div>
-          <div className="import-chip">Корпуса</div>
         </div>
       </div>
 
@@ -1712,10 +1691,6 @@ function TeachersPage({ accessToken }: { accessToken: string }) {
       <div className="import-head">
         <div>
           <h1>Преподаватели</h1>
-        </div>
-        <div className="import-chip-row">
-          <div className="import-chip">{teachers.length} всего</div>
-          <div className="import-chip">Занятия</div>
         </div>
       </div>
 
@@ -2130,10 +2105,6 @@ function TimeProfilesPage({ accessToken }: { accessToken: string }) {
         <div>
           <h1>Профили времени</h1>
         </div>
-        <div className="import-chip-row">
-          <div className="import-chip">{dayProfiles.length} дневных</div>
-          <div className="import-chip">{weekProfiles.length} недельных</div>
-        </div>
       </div>
 
       <div className="time-profile-tabs" role="tablist" aria-label="Тип профиля времени">
@@ -2454,11 +2425,6 @@ function ImportPage({ accessToken }: { accessToken: string }) {
         <div>
           <h1>Импорт JSON</h1>
           <p>Выберите файл, проверьте содержимое и загрузите расписание в БД.</p>
-        </div>
-        <div className="import-chip-row">
-          <div className="import-chip">JSON</div>
-          <div className="import-chip">Предпросмотр</div>
-          <div className="import-chip">БД</div>
         </div>
       </div>
 
@@ -2812,11 +2778,6 @@ function SchedulePage({ accessToken }: { accessToken: string }) {
       <div className="import-head">
         <div>
           <h1>Замены занятий</h1>
-        </div>
-        <div className="import-chip-row">
-          <div className="import-chip">Дата</div>
-          <div className="import-chip">№ занятия</div>
-          <div className="import-chip">Кабинеты</div>
         </div>
       </div>
 

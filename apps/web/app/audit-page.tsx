@@ -113,9 +113,6 @@ export default function AuditPage({ accessToken }: { accessToken: string }) {
         <div>
           <h1>История изменений</h1>
         </div>
-        <div className="import-chip-row">
-          <div className="import-chip">{total} записей</div>
-        </div>
       </div>
 
       <div className="audit-toolbar">
