@@ -1,5 +1,5 @@
 [project]
-name = "schedule-rks-api"
+name = "schedule-rksi-api"
 version = "0.1.0"
 description = "FastAPI service for schedule import and editing"
 requires-python = ">=3.12"

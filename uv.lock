@@ -5,7 +5,7 @@ requires-python = ">=3.12"
 [manifest]
 members = [
     "schedule-rks",
-    "schedule-rks-api",
+    "schedule-rksi-api",
 ]
 
 [[package]]
@@ -502,7 +502,7 @@ version = "0.1.0"
 source = { virtual = "." }
 
 [[package]]
-name = "schedule-rks-api"
+name = "schedule-rksi-api"
 version = "0.1.0"
 source = { virtual = "apps/api" }
 dependencies = [
